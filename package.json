@@ -1,0 +1,17 @@
+{
+  "name": "payments-management-app",
+  "version": "1.0.0",
+  "description": "מערכת ניהול תשלומים — הועברה מ-Google Apps Script ל-Node.js + PostgreSQL",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "migrate": "node -e \"require('./server/db').migrate().then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1)})\""
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.22.2",
+    "pg": "^8.22.0"
+  }
+}
