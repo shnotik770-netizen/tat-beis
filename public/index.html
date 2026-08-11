@@ -402,6 +402,38 @@ textarea { resize: vertical; line-height: 1.5; }
 .qa-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 20px -6px rgba(15,23,42,0.12); border-color: var(--blue); }
 .qa-ico { font-size: 21px; flex-shrink: 0; }
 
+/* כפתור פעולות מהירות צף — זמין מכל מסך */
+.fab-backdrop { display: none; position: fixed; inset: 0; z-index: 155; }
+.fab-backdrop.open { display: block; }
+.fab-wrap { position: fixed; bottom: 22px; left: 22px; z-index: 160; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.fab-menu {
+  display: flex; flex-direction: column; gap: 8px; margin-bottom: 2px;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transform: translateY(10px) scale(0.96); transform-origin: bottom left;
+  transition: opacity 0.2s ease, transform 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275), visibility 0.2s;
+}
+.fab-wrap.open .fab-menu { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); }
+.fab-item {
+  display: flex; flex-direction: row; align-items: center; gap: 10px;
+  background: var(--card); border: 1px solid var(--bdr); border-radius: 100px;
+  padding: 8px 16px 8px 8px; box-shadow: var(--shm); cursor: pointer;
+  font-size: 12.5px; font-weight: 700; color: var(--txt); white-space: nowrap;
+  transition: var(--trans);
+}
+.fab-item:hover { border-color: var(--blue); background: var(--bluel); color: var(--blue); transform: translateX(-3px); }
+.fab-item .fab-ico {
+  width: 28px; height: 28px; border-radius: 50%; background: var(--bluel);
+  display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0;
+}
+.fab-btn {
+  width: 56px; height: 56px; border-radius: 50%; background: var(--blue); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 26px;
+  cursor: pointer; box-shadow: var(--shm); border: none; flex-shrink: 0; transition: var(--trans);
+}
+.fab-btn:hover { background: #4338CA; transform: translateY(-2px); box-shadow: 0 20px 40px -10px rgba(79,70,229,0.45); }
+.fab-wrap.open .fab-btn { transform: rotate(45deg); background: #4338CA; }
+.fab-wrap.open .fab-btn:hover { transform: rotate(45deg) translateY(-2px); }
+
 @media (max-width: 768px) {
   .side { width: 82%; max-width: 280px; }
   .main::before { height: 100px; }
@@ -413,6 +445,8 @@ textarea { resize: vertical; line-height: 1.5; }
   .modal { padding: 16px; max-height: 92vh; }
   .m-title { font-size: 15px; }
   .fg2 { grid-template-columns: 1fr; gap: 9px; }
+  .fab-wrap { bottom: 16px; left: 16px; }
+  .fab-btn { width: 50px; height: 50px; font-size: 24px; }
 }
 </style>
 </head>
@@ -456,6 +490,12 @@ textarea { resize: vertical; line-height: 1.5; }
 
 <div class="toast" id="toast"></div>
 <div class="ov" id="ov" onclick="if(event.target===this)closeMByBackdrop()"><div class="modal" id="modal"></div></div>
+
+<div class="fab-backdrop" id="fabBackdrop" onclick="closeFab()"></div>
+<div class="fab-wrap" id="fabWrap">
+  <div class="fab-menu" id="fabMenu"></div>
+  <button class="fab-btn" id="fabBtn" onclick="toggleFab()" aria-label="פעולות מהירות">+</button>
+</div>
 
 <script>
 // ══════════════════════════════════════════════════════════════
@@ -542,6 +582,7 @@ function closeSide(){
 }
 
 function go(page) {
+  closeFab();
   ['dash','st','cat','dem','pay','debt','imp'].forEach(function(p){ document.getElementById('n-'+p).classList.toggle('on', p===page); });
   const titles = {dash:'דשבורד', st:'תלמידים', cat:'סיווגים', dem:'דרישות', pay:'תשלומים', debt:'חובות', imp:'שיוך תשלומים'};
   document.getElementById('tbTitle').textContent = titles[page];
@@ -632,6 +673,38 @@ function buildWaMsg(sid){
   return L.join(String.fromCharCode(10));
 }
 
+// פעולות מהירות — מקור אחד לדשבורד ולתפריט הצף כאחד
+const QUICK_ACTIONS = [
+  {icon:'🔍', label:'חיפוש תלמיד', fn:'openQuickSearchSt'},
+  {icon:'🏷️', label:'סיווג חדש', fn:'openAddCat'},
+  {icon:'📋', label:'דרישה חדשה', fn:'openDemTypeChooser'},
+  {icon:'💳', label:'רישום תשלום', fn:'openPayM'},
+  {icon:'📥', label:'ייבוא תלמידים', fn:'openImportSt'},
+  {icon:'📤', label:'ייבוא תשלומים', fn:'openPasteImp'}
+];
+
+// ── כפתור פעולות מהירות צף — זמין מכל מסך ──
+function buildFabMenu(){
+  document.getElementById('fabMenu').innerHTML = QUICK_ACTIONS.map(function(a){
+    return '<div class="fab-item" onclick="runFabAction(\''+a.fn+'\')"><span class="fab-ico">'+a.icon+'</span>'+a.label+'</div>';
+  }).join('');
+}
+function runFabAction(fnName){
+  closeFab();
+  window[fnName]();
+}
+function toggleFab(){
+  const w = document.getElementById('fabWrap');
+  const bd = document.getElementById('fabBackdrop');
+  const isOpen = w.classList.contains('open');
+  w.classList.toggle('open', !isOpen);
+  bd.classList.toggle('open', !isOpen);
+}
+function closeFab(){
+  document.getElementById('fabWrap').classList.remove('open');
+  document.getElementById('fabBackdrop').classList.remove('open');
+}
+
 function renderDash() {
   const active = D.students.filter(function(s){ return s.active==='כן'; });
   const dl = allDebts();
@@ -639,12 +712,7 @@ function renderDash() {
   const pendingCount = (D.pending||[]).length;
   document.getElementById('pg').innerHTML =
     '<div class="qa-grid">' +
-      '<div class="qa-btn" onclick="openQuickSearchSt()"><span class="qa-ico">🔍</span>חיפוש תלמיד</div>' +
-      '<div class="qa-btn" onclick="openAddCat()"><span class="qa-ico">🏷️</span>סיווג חדש</div>' +
-      '<div class="qa-btn" onclick="openDemTypeChooser()"><span class="qa-ico">📋</span>דרישה חדשה</div>' +
-      '<div class="qa-btn" onclick="openPayM()"><span class="qa-ico">💳</span>רישום תשלום</div>' +
-      '<div class="qa-btn" onclick="openImportSt()"><span class="qa-ico">📥</span>ייבוא תלמידים</div>' +
-      '<div class="qa-btn" onclick="openPasteImp()"><span class="qa-ico">📤</span>ייבוא תשלומים</div>' +
+      QUICK_ACTIONS.map(function(a){ return '<div class="qa-btn" onclick="'+a.fn+'()"><span class="qa-ico">'+a.icon+'</span>'+a.label+'</div>'; }).join('') +
     '</div>' +
     '<div class="stats">' +
       '<div class="stat bl" style="cursor:pointer" onclick="go(\'st\')"><div class="stat-l">תלמידים</div><div class="stat-v">'+active.length+'</div></div>' +
@@ -2215,7 +2283,7 @@ function toast(msg,type){
 }
 
 dlog('אתחול...');
-try { go('dash'); dlog('נטען בהצלחה'); }
+try { buildFabMenu(); go('dash'); dlog('נטען בהצלחה'); }
 catch(e){ derr('שגיאת אתחול: '+e.message); }
 console.log('%c✅ קוד נטען בהצלחה', 'color:#0ca678;font-weight:bold');
 </script>
