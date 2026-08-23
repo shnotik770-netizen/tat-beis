@@ -216,6 +216,7 @@ th {
   background: transparent;
   letter-spacing: 0.4px;
 }
+th[onclick]:hover { color: var(--blue); }
 td {
   padding: 13px 14px;
   border-bottom: 1px solid var(--bdr);
@@ -541,6 +542,32 @@ window.google = { script: { run: _scriptRunChain(null, null) } };
 <script>
 console.log('%c🚀 האפליקציה נטענת...', 'color:#3b5bdb;font-weight:bold');
 let D = {students:[], categories:[], demands:[], payments:[], classes:[]};
+
+// ── מיון גנרי לטבלאות — לחיצה על כותרת עמודה ממיינת לפיה ──
+const _tblSort = {};
+function tblSortIcon(tid, col){
+  const st = _tblSort[tid];
+  return (st && st.col===col) ? (st.dir==='asc'?' ▲':' ▼') : '';
+}
+function tblSetSort(tid, col, defaultDir, renderFn){
+  const st = _tblSort[tid] || (_tblSort[tid] = {col:null, dir:'asc'});
+  if(st.col===col) st.dir = st.dir==='asc'?'desc':'asc';
+  else { st.col = col; st.dir = defaultDir||'asc'; }
+  window[renderFn]();
+}
+function tblApplySort(tid, list, valueFn){
+  const st = _tblSort[tid];
+  if(!st || !st.col) return list;
+  const dir = st.dir==='asc'?1:-1;
+  return list.slice().sort(function(a,b){
+    const av = valueFn(st.col, a), bv = valueFn(st.col, b);
+    if(typeof av==='number' && typeof bv==='number') return (av-bv)*dir;
+    return String(av==null?'':av).localeCompare(String(bv==null?'':bv), 'he')*dir;
+  });
+}
+function th(tid, col, label, renderFn, defaultDir){
+  return '<th style="cursor:pointer;white-space:nowrap;user-select:none" onclick="tblSetSort(\''+tid+'\',\''+col+'\','+(defaultDir?"'"+defaultDir+"'":'null')+',\''+renderFn+'\')">'+label+tblSortIcon(tid,col)+'</th>';
+}
 const DEBUG_LOG = [];
 function dlog(msg){ const l='['+new Date().toLocaleTimeString('he-IL')+'] '+msg; DEBUG_LOG.push(l); if(DEBUG_LOG.length>150)DEBUG_LOG.shift(); console.log(l); }
 function derr(msg){ const l='['+new Date().toLocaleTimeString('he-IL')+'] ❌ '+msg; DEBUG_LOG.push(l); if(DEBUG_LOG.length>150)DEBUG_LOG.shift(); console.error(l); }
@@ -727,14 +754,27 @@ function renderDash() {
                : '<div class="card" style="border-right:3px solid var(--grn)"><strong style="color:var(--grn)">✅ אין חובות פתוחים</strong></div>');
 }
 function renderRecentPaymentsTable(){
-  const recent = D.payments.slice().reverse().slice(0,30);
-  if(!recent.length) return '';
-  const rows = recent.map(function(p){
+  let recent = D.payments.slice().reverse().slice(0,30).map(function(p){
     const kids = D.students.filter(function(s){ return p.studentIds.indexOf(s.id)>-1; }).map(function(s){return s.firstName+' '+s.lastName;}).join(', ');
-    return '<tr><td>'+p.date+'</td><td>'+kids+'</td><td>'+(p.payer||'—')+'</td><td>₪'+p.total.toLocaleString()+'</td><td><span class="badge">'+(p.method||'—')+'</span></td></tr>';
+    return {date:p.date, dateSort:dmyToSortable(p.date), kids:kids, payer:p.payer||'', total:p.total, method:p.method||''};
+  });
+  if(!recent.length) return '';
+  recent = tblApplySort('recentPay', recent, function(col, r){
+    if(col==='date') return r.dateSort;
+    if(col==='total') return r.total;
+    return r[col];
+  });
+  const rows = recent.map(function(r){
+    return '<tr><td>'+r.date+'</td><td>'+r.kids+'</td><td>'+(r.payer||'—')+'</td><td>₪'+r.total.toLocaleString()+'</td><td><span class="badge">'+(r.method||'—')+'</span></td></tr>';
   }).join('');
   return '<div class="card"><div style="font-size:14px;font-weight:700;margin-bottom:10px">💳 30 התשלומים האחרונים</div>' +
-    '<div style="overflow-x:auto"><table><thead><tr><th>תאריך</th><th>תלמידים</th><th>משלם</th><th>סכום</th><th>שיטה</th></tr></thead>' +
+    '<div style="overflow-x:auto"><table><thead><tr>'+
+      th('recentPay','date','תאריך','renderDash')+
+      th('recentPay','kids','תלמידים','renderDash')+
+      th('recentPay','payer','משלם','renderDash')+
+      th('recentPay','total','סכום','renderDash','desc')+
+      th('recentPay','method','שיטה','renderDash')+
+    '</tr></thead>' +
     '<tbody>'+rows+'</tbody></table></div></div>';
 }
 
@@ -784,11 +824,18 @@ function renderStudentsResults(){
   const filter = document.getElementById('stSearch').value;
   const clsFilter = document.getElementById('stCls').value;
   const instFilter = document.getElementById('stInst').value;
-  const list = D.students.filter(function(s){
+  let list = D.students.filter(function(s){
     const mn = !filter || (s.firstName+' '+s.lastName).toLowerCase().indexOf(filter.toLowerCase())>-1;
     const mc = !clsFilter || classKey(s)===clsFilter;
     const mi = !instFilter || (s.institution||'')===instFilter;
     return mn && mc && mi;
+  });
+  list = tblApplySort('students', list, function(col, s){
+    if(col==='name') return s.lastName+' '+s.firstName;
+    if(col==='class') return classKey(s)||'';
+    if(col==='parents') return (s.dadName||s.momName)?1:0;
+    if(col==='status') return s.active==='כן'?1:0;
+    return '';
   });
   const rows = list.map(function(s){
     const debt = stDebt(s.id);
@@ -803,7 +850,13 @@ function renderStudentsResults(){
   }).join('');
   document.getElementById('stResultsBox').innerHTML =
     '<div class="t2" style="margin-bottom:8px">מציג '+list.length+' מתוך '+D.students.length+' תלמידים</div>' +
-    '<div class="card"><table><thead><tr><th>שם</th><th>כיתה</th><th>הורים</th><th>אחים</th><th>סטטוס</th><th></th></tr></thead>' +
+    '<div class="card"><table><thead><tr>'+
+      th('students','name','שם','renderStudentsResults')+
+      th('students','class','כיתה','renderStudentsResults')+
+      th('students','parents','הורים','renderStudentsResults')+
+      '<th>אחים</th>'+
+      th('students','status','סטטוס','renderStudentsResults')+
+      '<th></th></tr></thead>' +
     '<tbody>' + (rows || '<tr><td colspan="6" class="empty">אין תלמידים</td></tr>') + '</tbody></table></div>';
 }
 function instOpts(sel){
@@ -1097,6 +1150,7 @@ function renderLedger(data) {
       (data.siblings&&data.siblings.length?'<button class="btn b-h" onclick=\'openFamilyLedger("'+s.id+'")\'>👨‍👩‍👧 כרטסת משפחתית</button>':'')+
       '<button class="btn b-h" onclick=\'closeM();openEditSt("'+s.id+'")\'>✏️ ערוך</button><button class="btn b-g" onclick=\'closeM();openPayM("'+s.id+'")\'>💳 תשלום</button></div>';
 }
+function _reRenderFamilyLedger(){ renderFamilyLedger(window._familyData); }
 function openFamilyLedger(studentId){
   openM('<div class="loading">טוען כרטסת משפחתית...</div>');
   google.script.run.withSuccessHandler(renderFamilyLedger).withFailureHandler(function(e){ toast(e.message,'err'); }).getFamilyLedger(studentId);
@@ -1105,7 +1159,16 @@ function renderFamilyLedger(data){
   if(!data){ toast('שגיאה בטעינה','err'); return; }
   window._familyData = data; // לשימוש בשליחת וואטסאפ
 
-  const rows = data.timeline.map(function(r){
+  const sortedTimeline = tblApplySort('famLedger', data.timeline, function(col, r){
+    if(col==='type') return r.type==='demand'?(r.isFamily?'0':'1'):'2';
+    if(col==='date') return dmyToSortable(r.date);
+    if(col==='child') return r.childName||'';
+    if(col==='details') return r.type==='demand' ? r.title : ((r.payer||'')+(r.method?' '+r.method:''));
+    if(col==='amount') return r.amount;
+    if(col==='status') return r.type==='demand' ? (r.balance>0?1:0) : -1;
+    return '';
+  });
+  const rows = sortedTimeline.map(function(r){
     if(r.type==='demand'){
       return '<tr>' +
         '<td><span class="badge">📋 '+(r.isFamily?'חיוב משפחתי':'דרישה')+' '+r.num+'</span></td>' +
@@ -1149,7 +1212,14 @@ function renderFamilyLedger(data){
       '<div class="stat '+(data.familyTotalBalance>0?'rd':'gr')+'" style="padding:10px"><div class="stat-l">'+(data.familyTotalBalance>0?'חוב משפחתי':'מסולק')+'</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalBalance.toLocaleString()+'</div></div>' +
     '</div>' +
     '<div class="card" style="padding:0;overflow-x:auto;margin-bottom:14px"><table>' +
-    '<thead><tr><th>סוג</th><th>תאריך</th><th>ילד/ה</th><th>פרטים</th><th>סכום</th><th>סטטוס</th></tr></thead>' +
+    '<thead><tr>'+
+      th('famLedger','type','סוג','_reRenderFamilyLedger')+
+      th('famLedger','date','תאריך','_reRenderFamilyLedger')+
+      th('famLedger','child','ילד/ה','_reRenderFamilyLedger')+
+      th('famLedger','details','פרטים','_reRenderFamilyLedger')+
+      th('famLedger','amount','סכום','_reRenderFamilyLedger')+
+      th('famLedger','status','סטטוס','_reRenderFamilyLedger')+
+    '</tr></thead>' +
     '<tbody>'+(rows||'<tr><td colspan="6" class="empty">אין נתונים</td></tr>')+'</tbody></table></div>' +
     '<div class="fg"><label>שליחת הדוח בוואטסאפ להורה</label><div class="chips" id="famParentChips">'+(parentChips||'<span class="t2">אין מספרי טלפון רשומים</span>')+'</div></div>' +
     '<div class="fg"><label>בני המשפחה</label><div class="card" style="padding:0 12px">'+membersList+'</div></div>' +
@@ -1742,7 +1812,7 @@ function saveImportDemand(){
 // ── Payments ──
 function renderPayments() {
   document.getElementById('tbAct').innerHTML = '<button class="btn b-p" onclick="openPayM()">+ רשום תשלום</button>';
-  const rows = D.payments.slice().reverse().map(function(p){
+  let list = D.payments.slice().reverse().map(function(p){
     const kidsObjs = D.students.filter(function(s){ return p.studentIds.indexOf(s.id)>-1; });
     const kids = kidsObjs.map(function(s){return s.firstName+' '+s.lastName;}).join(', ');
     const isMulti = kidsObjs.length>1;
@@ -1751,12 +1821,30 @@ function renderPayments() {
       const share = (a!==undefined) ? parseFloat(a)||0 : p.total/Math.max(kidsObjs.length,1);
       return '<span class="badge gy" style="margin-left:3px">'+s.firstName+': ₪'+share.toLocaleString()+'</span>';
     }).join('') : '';
-    return '<tr><td>'+kids+(breakdown?'<div style="margin-top:4px">'+breakdown+'</div>':'')+'</td><td>'+(p.payer||'—')+'</td><td>₪'+p.total.toLocaleString()+'</td>' +
+    return {p:p, kids:kids, breakdown:breakdown, dateSort:dmyToSortable(p.date)};
+  });
+  list = tblApplySort('payments', list, function(col, r){
+    if(col==='kids') return r.kids;
+    if(col==='payer') return r.p.payer||'';
+    if(col==='total') return r.p.total;
+    if(col==='method') return r.p.method||'';
+    if(col==='date') return r.dateSort;
+    return '';
+  });
+  const rows = list.map(function(r){
+    const p = r.p;
+    return '<tr><td>'+r.kids+(r.breakdown?'<div style="margin-top:4px">'+r.breakdown+'</div>':'')+'</td><td>'+(p.payer||'—')+'</td><td>₪'+p.total.toLocaleString()+'</td>' +
       '<td><span class="badge">'+(p.method||'—')+'</span></td><td>'+p.date+'</td>' +
       '<td><button class="btn b-h b-sm" onclick=\'openEditPay("'+p.id+'")\'>✏️</button> <button class="btn b-r b-sm" onclick=\'delPayFromList("'+p.id+'")\'>🗑️</button></td></tr>';
   }).join('');
   document.getElementById('pg').innerHTML =
-    '<div class="card"><table><thead><tr><th>תלמידים</th><th>משלם</th><th>סכום</th><th>שיטה</th><th>תאריך</th><th></th></tr></thead>' +
+    '<div class="card"><table><thead><tr>'+
+      th('payments','kids','תלמידים','renderPayments')+
+      th('payments','payer','משלם','renderPayments')+
+      th('payments','total','סכום','renderPayments','desc')+
+      th('payments','method','שיטה','renderPayments')+
+      th('payments','date','תאריך','renderPayments','desc')+
+      '<th></th></tr></thead>' +
     '<tbody>'+(rows || '<tr><td colspan="6" class="empty">אין תשלומים</td></tr>')+'</tbody></table></div>';
 }
 function openEditPay(id){
@@ -2211,7 +2299,12 @@ function openExportDebt(){
 // ── Pending Payments Import/Assign ──
 function renderImp() {
   document.getElementById('tbAct').innerHTML = '<button class="btn b-p" onclick="openPasteImp()">📥 הדבק נתונים</button>';
-  const list = D.pending || [];
+  let list = (D.pending || []).slice();
+  list = tblApplySort('imp', list, function(col, p){
+    if(col==='date') return dmyToSortable(p.date);
+    if(col==='amount') return p.amount;
+    return p[col]||'';
+  });
   const rows = list.map(function(p){
     return '<tr><td>'+p.date+'</td><td>'+(p.payer||'—')+'</td><td>₪'+p.amount.toLocaleString()+'</td>' +
       '<td>'+(p.method?'<span class="badge">'+p.method+'</span>':'<span class="t2">—</span>')+'</td>' +
@@ -2220,7 +2313,13 @@ function renderImp() {
   }).join('');
   document.getElementById('pg').innerHTML =
     '<div class="info">הדבק נתוני תשלומים מאקסל (תאריך, שם משלם, סכום, שיטה, הערות), ואז שייך כל שורה לתלמיד/ים.</div>' +
-    '<div class="card"><table><thead><tr><th>תאריך</th><th>משלם</th><th>סכום</th><th>שיטה</th><th>הערות</th><th></th></tr></thead>' +
+    '<div class="card"><table><thead><tr>'+
+      th('imp','date','תאריך','renderImp')+
+      th('imp','payer','משלם','renderImp')+
+      th('imp','amount','סכום','renderImp')+
+      th('imp','method','שיטה','renderImp')+
+      th('imp','notes','הערות','renderImp')+
+      '<th></th></tr></thead>' +
     '<tbody>'+(rows || '<tr><td colspan="6" class="empty">אין תשלומים ממתינים</td></tr>')+'</tbody></table></div>';
 }
 function openPasteImp() {
