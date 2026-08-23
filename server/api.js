@@ -42,20 +42,26 @@ async function addStudent(data) {
     `INSERT INTO students (id, last_name, first_name, class, institution, dad_name, dad_phone, mom_name, mom_phone, category_ids, active, tz, birth_date, address)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'כן',$11,$12,$13)`,
     [id, data.lastName || '', data.firstName || '', data.class || '', data.institution || '',
-     data.dadName || '', data.dadPhone || '', data.momName || '', data.momPhone || '',
+     data.dadName || '', logic.formatPhoneIL(data.dadPhone), data.momName || '', logic.formatPhoneIL(data.momPhone),
      data.categoryIds || [], data.tz || '', data.birthDate || '', data.address || '']
   );
   await syncStudentCats(id, data.categoryIds || [], []);
+
+  // השלמת פרטי הורים בין בני משפחה (טלפון משותף — מספיק הורה אחד תואם), משני הכיוונים
+  const allStudents = await da.getAllStudents();
+  await mergeFamilyParentInfoFor(id, allStudents);
   return { ok: true, id };
 }
 
 async function updateStudent(data) {
+  const dadPhone = logic.formatPhoneIL(data.dadPhone);
+  const momPhone = logic.formatPhoneIL(data.momPhone);
   const { rowCount } = await pool.query(
     `UPDATE students SET last_name=$2, first_name=$3, class=$4, institution=$5, dad_name=$6, dad_phone=$7,
        mom_name=$8, mom_phone=$9, category_ids=$10, active=$11, tz=$12, birth_date=$13, address=$14
      WHERE id=$1`,
     [data.id, data.lastName || '', data.firstName || '', data.class || '', data.institution || '',
-     data.dadName || '', data.dadPhone || '', data.momName || '', data.momPhone || '',
+     data.dadName || '', dadPhone, data.momName || '', momPhone,
      data.categoryIds || [], data.active || 'כן', data.tz || '', data.birthDate || '', data.address || '']
   );
   if (!rowCount) return { ok: false, err: 'תלמיד לא נמצא' };
@@ -63,14 +69,44 @@ async function updateStudent(data) {
   const { rows: oldRows } = await pool.query('SELECT category_ids FROM students WHERE id=$1', [data.id]);
   await syncStudentCats(data.id, data.categoryIds || [], (oldRows[0] && oldRows[0].category_ids) || []);
 
-  // עדכון פרטי הורים מסונכרן אוטומטית לכל מי שמזוהה כאותה משפחה (טלפון משותף)
+  // השלמת פרטי הורים בין בני משפחה (טלפון משותף — מספיק הורה אחד תואם): ממלא רק שדות ריקים בשני הכיוונים
   const allStudents = await da.getAllStudents();
-  const familyIds = logic.familyGroupIds(data.id, allStudents).filter(fid => fid !== data.id);
-  for (const fid of familyIds) {
-    await pool.query('UPDATE students SET dad_name=$2, dad_phone=$3, mom_name=$4, mom_phone=$5 WHERE id=$1',
-      [fid, data.dadName || '', data.dadPhone || '', data.momName || '', data.momPhone || '']);
-  }
+  await mergeFamilyParentInfoFor(data.id, allStudents);
   return { ok: true };
+}
+
+// מפעיל את מיזוג פרטי ההורים על קבוצת המשפחה של תלמיד נתון וכותב רק שורות שבאמת השתנו
+async function mergeFamilyParentInfoFor(studentId, allStudents) {
+  const familyIds = logic.familyGroupIds(studentId, allStudents);
+  if (familyIds.length < 2) return 0;
+  const byId = {};
+  allStudents.forEach(s => { byId[s.id] = s; });
+  const members = familyIds.map(fid => byId[fid]).filter(Boolean);
+  const merged = logic.mergeFamilyParentInfo(members);
+  let updated = 0;
+  for (const m of merged) {
+    const orig = byId[m.id];
+    if (m.dadName !== orig.dadName || m.dadPhone !== orig.dadPhone || m.momName !== orig.momName || m.momPhone !== orig.momPhone) {
+      await pool.query('UPDATE students SET dad_name=$2, dad_phone=$3, mom_name=$4, mom_phone=$5 WHERE id=$1',
+        [m.id, m.dadName, m.dadPhone, m.momName, m.momPhone]);
+      updated++;
+    }
+  }
+  return updated;
+}
+
+// סריקה חד-פעמית (ניתנת להפעלה חוזרת בבטחה) שמשלימה פרטי הורים חסרים בין בני משפחה בכל בסיס הנתונים
+async function backfillFamilyParentInfo() {
+  const allStudents = await da.getAllStudents();
+  const visited = new Set();
+  let updated = 0;
+  for (const s of allStudents) {
+    if (visited.has(s.id)) continue;
+    const familyIds = logic.familyGroupIds(s.id, allStudents);
+    familyIds.forEach(fid => visited.add(fid));
+    updated += await mergeFamilyParentInfoFor(s.id, allStudents);
+  }
+  return { ok: true, updated };
 }
 
 async function deleteStudent(id) {
@@ -101,10 +137,11 @@ async function importStudentsFromPaste(rawText) {
     await pool.query(
       `INSERT INTO students (id, last_name, first_name, class, institution, dad_name, dad_phone, mom_name, mom_phone, active, tz, birth_date, address)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [logic.uid('S'), lastName || '', firstName || '', cls || '', institution || '', dadName || '', dadPhone || '', momName || '', momPhone || '', activeVal, tz || '', birthDate || '', address || '']
+      [logic.uid('S'), lastName || '', firstName || '', cls || '', institution || '', dadName || '', logic.formatPhoneIL(dadPhone), momName || '', logic.formatPhoneIL(momPhone), activeVal, tz || '', birthDate || '', address || '']
     );
     added++;
   }
+  if (added) await backfillFamilyParentInfo(); // משלים פרטי הורים חסרים בין אחים שנוספו/קיימים
   return { ok: true, added, skipped, skippedReasons: skippedReasons.slice(0, 20) };
 }
 
@@ -545,7 +582,7 @@ async function deletePendingPayment(pendingId) {
 
 module.exports = {
   pingTest, getAllData,
-  addStudent, updateStudent, deleteStudent, importStudentsFromPaste,
+  addStudent, updateStudent, deleteStudent, importStudentsFromPaste, backfillFamilyParentInfo,
   addCategory, updateCategory, deleteCategory,
   addDemand, updateDemand, removeStudentFromDemand, splitStudentFromDemand, addDemandVaried, deleteDemand,
   addPayment, deletePayment, updatePayment,

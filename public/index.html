@@ -833,7 +833,7 @@ function clientFamilyIds(studentId){
   return [studentId]; // גיבוי אם המטמון עדיין לא מוכן
 }
 function renderStudents(filter, clsFilter, instFilter) {
-  document.getElementById('tbAct').innerHTML = '<button class="btn b-h" onclick="openDataCompletenessReport()">📋 דוח שלמות נתונים</button> <button class="btn b-h" onclick="openExportStudents()">📤 ייצוא</button> <button class="btn b-h" onclick="openImportSt()">📥 ייבוא</button> <button class="btn b-p" onclick="openAddSt()">+ הוסף תלמיד</button>';
+  document.getElementById('tbAct').innerHTML = '<button class="btn b-h" onclick="openDataCompletenessReport()">📋 דוח שלמות נתונים</button> <button class="btn b-h" onclick="runBackfillFamilyInfo()">🔗 השלמת פרטי הורים בין אחים</button> <button class="btn b-h" onclick="openExportStudents()">📤 ייצוא</button> <button class="btn b-h" onclick="openImportSt()">📥 ייבוא</button> <button class="btn b-p" onclick="openAddSt()">+ הוסף תלמיד</button>';
   document.getElementById('pg').innerHTML =
     '<div class="sr"><input id="stSearch" placeholder="חיפוש שם..." value="'+esc(filter||'')+'" oninput="renderStudentsResults()"><select id="stCls" onchange="renderStudentsResults()">'+clsOpts(clsFilter)+'</select><select id="stInst" onchange="renderStudentsResults()">'+instOpts(instFilter)+'</select></div>' +
     '<div id="stResultsBox"></div>';
@@ -882,7 +882,9 @@ function renderStudentsResults(){
     return (a.firstName||'').localeCompare(b.firstName||'','he');
   });
 
-  const groupCount = new Set(list.map(function(s){return classKey(s)||'—';})).size;
+  const groupSizes = {};
+  list.forEach(function(s){ const g = classKey(s)||'—'; groupSizes[g] = (groupSizes[g]||0)+1; });
+  const distinctGroupCount = Object.keys(groupSizes).length;
   let lastGroup = null;
   const rows = list.map(function(s){
     const debt = stDebt(s.id);
@@ -890,8 +892,8 @@ function renderStudentsResults(){
     const sibs = D.students.filter(function(x){ return x.id!==s.id && famIds.indexOf(x.id)>-1; });
     let groupHdr = '';
     const g = classKey(s)||'—';
-    if(groupCount>1 && g!==lastGroup){
-      groupHdr = '<tr class="grp-sep"><td colspan="6">כיתה '+(s.class||'—')+(s.institution?' · מוסד '+s.institution:'')+'</td></tr>';
+    if(distinctGroupCount>1 && g!==lastGroup){
+      groupHdr = '<tr class="grp-sep"><td colspan="6">('+groupSizes[g]+') כיתה '+(s.class||'—')+(s.institution?' · מוסד '+s.institution:'')+'</td></tr>';
       lastGroup = g;
     }
     return groupHdr + '<tr class="cr" onclick=\'openLedger("'+s.id+'")\'><td>'+s.lastName+' '+s.firstName+(debt>0?' <span class="badge rd">₪'+debt.toLocaleString()+'</span>':'')+'</td>' +
@@ -936,6 +938,15 @@ function delSt(id){
   }).deleteStudent(id);
 }
 
+// משלים פרטי הורים חסרים בין אחים בכל בסיס הנתונים (למשל: לתלמיד יש רק שם+טלפון של הורה אחד,
+// ולאח/אחות שלו יש את פרטי ההורה השני — מעתה שניהם ישלימו זה את זה). לא דורס ערך קיים.
+function runBackfillFamilyInfo(){
+  google.script.run.withSuccessHandler(function(r){
+    if(!r || !r.ok){ toast((r&&r.err)||'שגיאה','err'); return; }
+    toast(r.updated ? ('הושלמו פרטי הורים ל-'+r.updated+' תלמידים ✓') : 'לא נמצאו פערים להשלמה','ok');
+    if(r.updated) goStudentsKeepFilter();
+  }).backfillFamilyParentInfo();
+}
 function openDataCompletenessReport(){
   window._dcFilter = 'all';
   openM('<div class="m-title">📋 דוח שלמות נתונים</div>' +
@@ -1837,33 +1848,33 @@ function parseImportDemand(){
   window._imdTitle = title;
   renderImportDemandRows();
 }
+function imdStudentLabel(s){ return s.firstName+' '+s.lastName+' ('+(classKey(s)||'—')+')'; }
+function imdActiveStudents(){ return D.students.filter(function(s){return s.active==='כן';}); }
 function renderImportDemandRows(){
   const rows = window._imdRows;
-  const options = D.students.filter(function(s){return s.active==='כן';}).map(function(s){
-    return '<option value="'+s.id+'">'+s.firstName+' '+s.lastName+' ('+(classKey(s)||'—')+')</option>';
-  }).join('');
+  const activeStudents = imdActiveStudents();
+  const datalistOptions = activeStudents.map(function(s){ return '<option value="'+esc(imdStudentLabel(s))+'">'; }).join('');
   const matchedCount = rows.filter(function(r){return r.matchedId;}).length;
   const html = rows.map(function(r,i){
+    const matched = r.matchedId ? activeStudents.filter(function(s){return s.id===r.matchedId;})[0] : null;
     return '<div class="p-row"><span style="flex:1">'+esc(r.rawName)+' — ₪'+r.amount+'</span>' +
-      '<select id="imdRow_'+i+'" style="width:230px">' +
-        '<option value="">— לא משויך —</option>' + options +
-      '</select></div>';
+      '<input list="imdStudentList" id="imdRow_'+i+'" placeholder="הקלד שם תלמיד לחיפוש..." value="'+(matched?esc(imdStudentLabel(matched)):'')+'" style="width:230px">' +
+      '</div>';
   }).join('');
   openM('<div class="m-title">📥 שיוך שורות לתלמידים</div>' +
-    '<div class="info">'+matchedCount+' מתוך '+rows.length+' שויכו אוטומטית לפי שם. בדוק ותקן במידת הצורך לפני היצירה.</div>' +
+    '<div class="info">'+matchedCount+' מתוך '+rows.length+' שויכו אוטומטית לפי שם. הקלידו בכל שדה כדי לחפש ולתקן/לשייך תלמיד לפני היצירה.</div>' +
+    '<datalist id="imdStudentList">'+datalistOptions+'</datalist>' +
     '<div style="max-height:340px;overflow-y:auto">'+html+'</div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick="saveImportDemand()">✅ צור דרישות</button></div>');
-  rows.forEach(function(r,i){
-    const sel = document.getElementById('imdRow_'+i);
-    if(sel && r.matchedId) sel.value = r.matchedId;
-  });
 }
 function saveImportDemand(){
   const rows = window._imdRows;
+  const labelToId = {};
+  imdActiveStudents().forEach(function(s){ labelToId[imdStudentLabel(s)] = s.id; });
   const items = [];
   rows.forEach(function(r,i){
-    const sel = document.getElementById('imdRow_'+i);
-    const sid = sel ? sel.value : '';
+    const el = document.getElementById('imdRow_'+i);
+    const sid = el ? labelToId[el.value.trim()] : '';
     if(sid && r.amount>0) items.push({studentId:sid, amount:r.amount, notes:''});
   });
   if(!items.length){ toast('אין שורות משויכות עם סכום תקין','err'); return; }
@@ -1957,7 +1968,17 @@ function delPayFromList(id){
   if(!confirm('למחוק תשלום זה?')) return;
   google.script.run.withSuccessHandler(function(){ toast('נמחק'); go('pay'); }).deletePayment(id);
 }
-function normPhone(p){ return String(p||'').replace(/[^0-9]/g,''); }
+// נירמול טלפון להשוואה/קיבוץ — מזהה קידומת בינ"ל (972/00972) וחוסר 0 מוביל, כך שאותו מספר
+// שהוזן בכל וריאציה (551234567 / 972-55-669-8745 / 058-558-669-1) מתנרמל לאותו ערך ומאפשר זיהוי אחים
+// גם כאשר תואם רק הורה אחד (לא נדרשת התאמה של שני ההורים)
+function normPhone(p){
+  let d = String(p||'').replace(/\D/g,'');
+  if(!d) return '';
+  if(d.indexOf('00972')===0) d = d.slice(5);
+  else if(d.indexOf('972')===0) d = d.slice(3);
+  if(d.charAt(0)!=='0') d = '0'+d;
+  return d;
+}
 function buildParents() {
   const map = {}; // מקובץ לפי טלפון (זיהוי אמין) — לא לפי טקסט השם
   D.students.filter(function(s){return s.active==='כן';}).forEach(function(s){
