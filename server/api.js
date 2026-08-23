@@ -526,13 +526,14 @@ async function getPendingPayments() { return da.getAllPending(); }
 
 async function importPendingFromPaste(rawText) {
   const lines = String(rawText || '').split('\n').map(l => l.trim()).filter(Boolean);
-  let added = 0, skipped = 0;
+  let added = 0, skipped = 0, skippedReasons = [];
   const validMethods = ['מזומן', 'העברה בנקאית', 'אפליקציה', 'שיק', 'אשראי', 'אחר'];
 
-  for (const line of lines) {
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
     let cells = line.includes('\t') ? line.split('\t') : line.split(',');
     cells = cells.map(c => (c || '').trim());
-    if (cells.length < 2) { skipped++; continue; }
+    if (cells.length < 2) { skipped++; skippedReasons.push(`שורה ${idx + 1}: פחות מ-2 עמודות`); continue; }
     const dateRaw = cells[0], payerRaw = cells[1], amountRaw = cells[2];
     let methodRaw = cells[3] || '', notesRaw = cells[4] || '';
     if (methodRaw && validMethods.indexOf(methodRaw) === -1) {
@@ -540,7 +541,7 @@ async function importPendingFromPaste(rawText) {
       methodRaw = '';
     }
     const amount = parseFloat(String(amountRaw || '').replace(/[^\d.-]/g, ''));
-    if (!amount || amount <= 0) { skipped++; continue; }
+    if (!amount || amount <= 0) { skipped++; skippedReasons.push(`שורה ${idx + 1}: ${payerRaw || 'ללא שם'} — סכום לא תקין`); continue; }
     let dateVal;
     try { dateVal = dateRaw ? new Date(dateRaw) : new Date(); if (isNaN(dateVal.getTime())) dateVal = new Date(); }
     catch (e) { dateVal = new Date(); }
@@ -549,7 +550,7 @@ async function importPendingFromPaste(rawText) {
       [logic.uid('N'), dateVal, payerRaw || '', amount, methodRaw || '', notesRaw || '']);
     added++;
   }
-  return { ok: true, added, skipped };
+  return { ok: true, added, skipped, skippedReasons: skippedReasons.slice(0, 20) };
 }
 
 async function assignPendingPayment(pendingId, assignment) {

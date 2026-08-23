@@ -835,7 +835,7 @@ function clientFamilyIds(studentId){
 function renderStudents(filter, clsFilter, instFilter) {
   document.getElementById('tbAct').innerHTML = '<button class="btn b-h" onclick="openDataCompletenessReport()">📋 דוח שלמות נתונים</button> <button class="btn b-h" onclick="runBackfillFamilyInfo()">🔗 השלמת פרטי הורים בין אחים</button> <button class="btn b-h" onclick="openExportStudents()">📤 ייצוא</button> <button class="btn b-h" onclick="openImportSt()">📥 ייבוא</button> <button class="btn b-p" onclick="openAddSt()">+ הוסף תלמיד</button>';
   document.getElementById('pg').innerHTML =
-    '<div class="sr"><input id="stSearch" placeholder="חיפוש שם..." value="'+esc(filter||'')+'" oninput="renderStudentsResults()"><select id="stCls" onchange="renderStudentsResults()">'+clsOpts(clsFilter)+'</select><select id="stInst" onchange="renderStudentsResults()">'+instOpts(instFilter)+'</select></div>' +
+    '<div class="sr"><input id="stSearch" placeholder="חיפוש שם תלמיד / הורה / טלפון..." value="'+esc(filter||'')+'" oninput="renderStudentsResults()"><select id="stCls" onchange="renderStudentsResults()">'+clsOpts(clsFilter)+'</select><select id="stInst" onchange="renderStudentsResults()">'+instOpts(instFilter)+'</select></div>' +
     '<div id="stResultsBox"></div>';
   renderStudentsResults();
 }
@@ -846,12 +846,26 @@ function studentFamilyKey(s){
   const members = D.students.filter(function(x){ return famIds.indexOf(x.id)>-1; });
   return members.map(function(x){return x.lastName||'';}).sort()[0];
 }
+// חיפוש תלמיד תואם גם לפי שם הורה או טלפון הורה, לא רק לפי שם התלמיד המוצג בטבלה
+function matchesStudentSearch(s, filter){
+  const q = filter.trim().toLowerCase();
+  if(!q) return true;
+  if((s.firstName+' '+s.lastName).toLowerCase().indexOf(q)>-1) return true;
+  if((s.dadName||'').toLowerCase().indexOf(q)>-1) return true;
+  if((s.momName||'').toLowerCase().indexOf(q)>-1) return true;
+  const qDigits = filter.replace(/\D/g,'');
+  if(qDigits){
+    if((s.dadPhone||'').replace(/\D/g,'').indexOf(qDigits)>-1) return true;
+    if((s.momPhone||'').replace(/\D/g,'').indexOf(qDigits)>-1) return true;
+  }
+  return false;
+}
 function renderStudentsResults(){
   const filter = document.getElementById('stSearch').value;
   const clsFilter = document.getElementById('stCls').value;
   const instFilter = document.getElementById('stInst').value;
   let list = D.students.filter(function(s){
-    const mn = !filter || (s.firstName+' '+s.lastName).toLowerCase().indexOf(filter.toLowerCase())>-1;
+    const mn = matchesStudentSearch(s, filter);
     const mc = !clsFilter || classKey(s)===clsFilter;
     const mi = !instFilter || (s.institution||'')===instFilter;
     return mn && mc && mi;
@@ -1047,11 +1061,11 @@ function renderExportStudents(){
   const scope = scopeEl ? scopeEl.getAttribute('data-v') : 'all';
   let list;
   if(scope==='filtered'){
-    const q = ((document.getElementById('stSearch')||{}).value||'').toLowerCase();
+    const q = (document.getElementById('stSearch')||{}).value||'';
     const cls = (document.getElementById('stCls')||{}).value||'';
     const inst = (document.getElementById('stInst')||{}).value||'';
     list = D.students.filter(function(s){
-      const mn = !q || (s.firstName+' '+s.lastName).toLowerCase().indexOf(q)>-1;
+      const mn = matchesStudentSearch(s, q);
       const mc = !cls || classKey(s)===cls;
       const mi = !inst || (s.institution||'')===inst;
       return mn && mc && mi;
@@ -1101,7 +1115,12 @@ function doImportSt(){
   if(!txt.trim()){ toast('לא הודבק כלום','err'); return; }
   google.script.run.withSuccessHandler(function(r){
     if(!r.ok){ toast(r.err,'err'); return; }
-    closeM(); toast('יובאו '+r.added+' תלמידים ✓','ok'); goStudentsKeepFilter();
+    goStudentsKeepFilter();
+    if(r.skipped>0){
+      openImportReport('📋 דוח ייבוא תלמידים', r.added, r.skippedReasons||[]);
+    } else {
+      closeM(); toast('יובאו '+r.added+' תלמידים ✓','ok');
+    }
   }).importStudentsFromPaste(txt);
 }
 
@@ -1816,8 +1835,15 @@ function openImportDemand(){
       '<span class="chip" data-v="varied" onclick="imdSetType(this)">משתנה — 2 עמודות (שם, סכום)</span>' +
     '</div></div>' +
     '<div class="fg" id="imd_amtWrap"><label>סכום אחיד לכולם</label><input type="number" id="imd_amt"></div>' +
+    '<div class="fg"><label>סוג חיוב (ברירת מחדל לכל השורות — ניתן לשנות בכל שורה בנפרד בשלב הבא)</label><div class="chips" id="imd_famType">' +
+      '<span class="chip on" data-v="personal">👤 אישי</span>' +
+      '<span class="chip" data-v="family">🏠 משפחתי</span>' +
+    '</div></div>' +
     '<div class="fg"><label>הדבק כאן (שורה לכל תלמיד'+' — במצב "משתנה" עם טאב/פסיק בין שם לסכום)</label><textarea id="imd_paste" style="height:150px;font-family:monospace;font-size:12px"></textarea></div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick="parseImportDemand()">🔍 פענח שורות</button></div>');
+  document.querySelectorAll('#imd_famType .chip').forEach(function(c){
+    c.onclick = function(){ document.querySelectorAll('#imd_famType .chip').forEach(function(x){x.classList.remove('on');}); c.classList.add('on'); };
+  });
 }
 function imdSetType(el){
   document.querySelectorAll('#imd_type .chip').forEach(function(c){c.classList.remove('on');});
@@ -1828,6 +1854,7 @@ function parseImportDemand(){
   const title = v('imd_title');
   if(!title){ toast('נא למלא כותרת','err'); return; }
   const type = document.querySelector('#imd_type .chip.on').getAttribute('data-v');
+  const defaultFamily = document.querySelector('#imd_famType .chip.on').getAttribute('data-v')==='family';
   const uniformAmt = parseFloat(v('imd_amt'))||0;
   if(type==='uniform' && !uniformAmt){ toast('נא להזין סכום','err'); return; }
   const lines = v('imd_paste').split('\n').map(function(l){return l.trim();}).filter(Boolean);
@@ -1842,7 +1869,7 @@ function parseImportDemand(){
     }
     const nameL = name.toLowerCase();
     const matches = D.students.filter(function(s){ return s.active==='כן' && (s.firstName+' '+s.lastName).toLowerCase().indexOf(nameL)>-1; });
-    return {rawName:name, amount:amount, matchedId: matches.length===1 ? matches[0].id : ''};
+    return {rawName:name, amount:amount, matchedId: matches.length===1 ? matches[0].id : '', isFamily: defaultFamily};
   });
   window._imdRows = rows;
   window._imdTitle = title;
@@ -1850,6 +1877,7 @@ function parseImportDemand(){
 }
 function imdStudentLabel(s){ return s.firstName+' '+s.lastName+' ('+(classKey(s)||'—')+')'; }
 function imdActiveStudents(){ return D.students.filter(function(s){return s.active==='כן';}); }
+function imdFamChanged(i, checked){ window._imdRows[i].isFamily = checked; }
 function renderImportDemandRows(){
   const rows = window._imdRows;
   const activeStudents = imdActiveStudents();
@@ -1858,11 +1886,14 @@ function renderImportDemandRows(){
   const html = rows.map(function(r,i){
     const matched = r.matchedId ? activeStudents.filter(function(s){return s.id===r.matchedId;})[0] : null;
     return '<div class="p-row"><span style="flex:1">'+esc(r.rawName)+' — ₪'+r.amount+'</span>' +
-      '<input list="imdStudentList" id="imdRow_'+i+'" placeholder="הקלד שם תלמיד לחיפוש..." value="'+(matched?esc(imdStudentLabel(matched)):'')+'" style="width:230px">' +
+      '<label style="display:flex;align-items:center;gap:4px;cursor:pointer;flex-shrink:0" title="חיוב זה משפחתי (לא אישי)">' +
+        '<input type="checkbox"'+(r.isFamily?' checked':'')+' onchange="imdFamChanged('+i+',this.checked)" style="width:14px;height:14px">' +
+        '<span style="font-size:11px;color:var(--amb);font-weight:700">🏠</span></label>' +
+      '<input list="imdStudentList" id="imdRow_'+i+'" placeholder="הקלד שם תלמיד לחיפוש..." value="'+(matched?esc(imdStudentLabel(matched)):'')+'" style="width:210px">' +
       '</div>';
   }).join('');
   openM('<div class="m-title">📥 שיוך שורות לתלמידים</div>' +
-    '<div class="info">'+matchedCount+' מתוך '+rows.length+' שויכו אוטומטית לפי שם. הקלידו בכל שדה כדי לחפש ולתקן/לשייך תלמיד לפני היצירה.</div>' +
+    '<div class="info">'+matchedCount+' מתוך '+rows.length+' שויכו אוטומטית לפי שם. הקלידו בכל שדה כדי לחפש ולתקן/לשייך תלמיד, וסמנו 🏠 לחיוב משפחתי בשורות הרלוונטיות, לפני היצירה.</div>' +
     '<datalist id="imdStudentList">'+datalistOptions+'</datalist>' +
     '<div style="max-height:340px;overflow-y:auto">'+html+'</div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick="saveImportDemand()">✅ צור דרישות</button></div>');
@@ -1872,15 +1903,24 @@ function saveImportDemand(){
   const labelToId = {};
   imdActiveStudents().forEach(function(s){ labelToId[imdStudentLabel(s)] = s.id; });
   const items = [];
+  const failReasons = [];
   rows.forEach(function(r,i){
     const el = document.getElementById('imdRow_'+i);
-    const sid = el ? labelToId[el.value.trim()] : '';
-    if(sid && r.amount>0) items.push({studentId:sid, amount:r.amount, notes:''});
+    const typed = el ? el.value.trim() : '';
+    const sid = labelToId[typed];
+    if(!sid){ failReasons.push(r.rawName+' — לא שויך לתלמיד'); return; }
+    if(!(r.amount>0)){ failReasons.push(r.rawName+' — סכום לא תקין'); return; }
+    items.push({studentId:sid, amount:r.amount, notes:'', isFamily: !!r.isFamily});
   });
   if(!items.length){ toast('אין שורות משויכות עם סכום תקין','err'); return; }
   google.script.run.withSuccessHandler(function(r){
     if(r&&!r.ok){ toast(r.err,'err'); return; }
-    closeM(); toast('נוצרו '+r.count+' דרישות ✓','ok'); go('dem');
+    go('dem');
+    if(failReasons.length){
+      openImportReport('📋 דוח יצירת דרישות מייבוא', r.count, failReasons);
+    } else {
+      closeM(); toast('נוצרו '+r.count+' דרישות ✓','ok');
+    }
   }).addDemandVaried({title:window._imdTitle, items:items});
 }
 // ── Payments ──
@@ -2417,7 +2457,12 @@ function doPasteImp(){
   if(!txt.trim()){ toast('לא הודבק כלום','err'); return; }
   google.script.run.withSuccessHandler(function(r){
     if(!r.ok){ toast(r.err,'err'); return; }
-    closeM(); toast('יובאו '+r.added+' שורות ✓','ok'); go('imp');
+    go('imp');
+    if(r.skipped>0){
+      openImportReport('📋 דוח ייבוא תשלומים', r.added, r.skippedReasons||[]);
+    } else {
+      closeM(); toast('יובאו '+r.added+' שורות ✓','ok');
+    }
   }).importPendingFromPaste(txt);
 }
 function openAssignImp(pendingId){
@@ -2458,6 +2503,20 @@ function closeM(){ document.getElementById('ov').classList.remove('open'); windo
 function closeMByBackdrop(){
   if(window._modalDirty && !confirm('יש נתונים שהוזנו ולא נשמרו. לצאת בכל זאת?')) return;
   closeM();
+}
+// דוח ייבוא כללי — מציג רשימה נפרדת של מה שהצליח מול מה שלא הצליח (ולמה), בסוף כל פעולת ייבוא/יצירה
+function openImportReport(title, successCount, failItems){
+  failItems = failItems || [];
+  const list = failItems.map(function(t){
+    return '<div class="p-row"><span style="color:var(--red)">✕</span><span style="flex:1">'+esc(t)+'</span></div>';
+  }).join('');
+  openM('<div class="m-title">'+title+'</div>' +
+    '<div class="stats" style="margin-bottom:12px">' +
+      '<div class="stat gr"><div class="stat-l">הצליחו</div><div class="stat-v">'+successCount+'</div></div>' +
+      '<div class="stat rd"><div class="stat-l">לא הצליחו</div><div class="stat-v">'+failItems.length+'</div></div>' +
+    '</div>' +
+    (failItems.length ? '<div class="fg"><label>מה לא הצליח</label><div style="max-height:280px;overflow-y:auto;border:1px solid var(--bdr);border-radius:var(--r);padding:6px">'+list+'</div></div>' : '<div class="empty">הכל הצליח 🎉</div>') +
+    '<div class="m-foot"><button class="btn b-p" onclick="closeM()">סגור</button></div>');
 }
 function toast(msg,type){
   const t=document.getElementById('toast');
