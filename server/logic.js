@@ -89,23 +89,25 @@ function familyGroupIds(studentId, students) {
   return [...visited];
 }
 
-// ממזג פרטי הורים בין בני משפחה (מזוהים לפי טלפון משותף): אם לתלמיד אחד יש רק שם+טלפון
-// של הורה אחד ולאח/אחות שלו יש את פרטי ההורה השני, שני התלמידים "משלימים" זה את זה.
+// ממזג פרטי הורים (וכתובת) בין בני משפחה (מזוהים לפי טלפון משותף): אם לתלמיד אחד יש רק שם+טלפון
+// של הורה אחד ולאח/אחות שלו יש את פרטי ההורה השני או את הכתובת, בני המשפחה "משלימים" זה את זה.
 // ממלא רק שדות ריקים — לעולם לא דורס ערך קיים, גם אם הוא שונה בין בני המשפחה.
 function mergeFamilyParentInfo(members) {
-  let dadName = '', dadPhone = '', momName = '', momPhone = '';
+  let dadName = '', dadPhone = '', momName = '', momPhone = '', address = '';
   members.forEach(m => {
     if (!dadName && m.dadName) dadName = m.dadName;
     if (!dadPhone && m.dadPhone) dadPhone = m.dadPhone;
     if (!momName && m.momName) momName = m.momName;
     if (!momPhone && m.momPhone) momPhone = m.momPhone;
+    if (!address && m.address) address = m.address;
   });
   return members.map(m => ({
     ...m,
     dadName: m.dadName || dadName,
     dadPhone: m.dadPhone || dadPhone,
     momName: m.momName || momName,
-    momPhone: m.momPhone || momPhone
+    momPhone: m.momPhone || momPhone,
+    address: m.address || address
   }));
 }
 
