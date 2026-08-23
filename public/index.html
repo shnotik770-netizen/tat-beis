@@ -165,7 +165,7 @@ nav { flex: 1; padding: 16px 11px; overflow-y: auto; }
 
 .tb-title { font-size: 24px; font-weight: 800; color: var(--txt); letter-spacing: -0.5px; }
 
-.pg { flex: 1; overflow-y: auto; padding: 0 30px 30px; z-index: 1; }
+.pg { flex: 1; overflow-y: auto; padding: 0 30px 90px; z-index: 1; }
 
 .card {
   background: var(--card);
@@ -440,7 +440,7 @@ textarea { resize: vertical; line-height: 1.5; }
   .main::before { height: 100px; }
   .topbar { padding: 12px 14px; flex-wrap: wrap; gap: 8px; }
   .tb-title { font-size: 15px; padding-right: 8px !important; }
-  .pg { padding: 0 14px 14px; }
+  .pg { padding: 0 14px 84px; }
   .stats { grid-template-columns: 1fr; }
   .card { padding: 12px; }
   .modal { padding: 16px; max-height: 92vh; }
@@ -850,7 +850,7 @@ function renderStudentsResults(){
   }).join('');
   document.getElementById('stResultsBox').innerHTML =
     '<div class="t2" style="margin-bottom:8px">מציג '+list.length+' מתוך '+D.students.length+' תלמידים</div>' +
-    '<div class="card"><table><thead><tr>'+
+    '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>'+
       th('students','name','שם','renderStudentsResults')+
       th('students','class','כיתה','renderStudentsResults')+
       th('students','parents','הורים','renderStudentsResults')+
@@ -1838,7 +1838,7 @@ function renderPayments() {
       '<td><button class="btn b-h b-sm" onclick=\'openEditPay("'+p.id+'")\'>✏️</button> <button class="btn b-r b-sm" onclick=\'delPayFromList("'+p.id+'")\'>🗑️</button></td></tr>';
   }).join('');
   document.getElementById('pg').innerHTML =
-    '<div class="card"><table><thead><tr>'+
+    '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>'+
       th('payments','kids','תלמידים','renderPayments')+
       th('payments','payer','משלם','renderPayments')+
       th('payments','total','סכום','renderPayments','desc')+
@@ -2224,7 +2224,7 @@ function renderDebts(filter, clsFilter) {
       '<button class="btn '+(debtViewMode==='family'?'b-p':'b-h')+' b-sm" onclick="setDebtView(\'family\')">👨‍👩‍👧 לפי משפחות</button>' +
       '<button class="btn b-h b-sm" onclick="openExportDebt()">📤 ייצוא</button>' +
     '</div>' +
-    '<div class="card"><table><thead><tr>' +
+    '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>' +
       '<th style="cursor:pointer" onclick="setDebtSort(\'name\')">שם'+sortIcon('name')+'</th>' +
       '<th style="cursor:pointer" onclick="setDebtSort(\'class\')">כיתה'+sortIcon('class')+'</th>' +
       '<th style="cursor:pointer" onclick="setDebtSort(\'debt\')">חוב'+sortIcon('debt')+'</th>' +
@@ -2313,7 +2313,7 @@ function renderImp() {
   }).join('');
   document.getElementById('pg').innerHTML =
     '<div class="info">הדבק נתוני תשלומים מאקסל (תאריך, שם משלם, סכום, שיטה, הערות), ואז שייך כל שורה לתלמיד/ים.</div>' +
-    '<div class="card"><table><thead><tr>'+
+    '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>'+
       th('imp','date','תאריך','renderImp')+
       th('imp','payer','משלם','renderImp')+
       th('imp','amount','סכום','renderImp')+
