@@ -833,7 +833,7 @@ function clientFamilyIds(studentId){
   return [studentId]; // גיבוי אם המטמון עדיין לא מוכן
 }
 function renderStudents(filter, clsFilter, instFilter) {
-  document.getElementById('tbAct').innerHTML = '<button class="btn b-h" onclick="openDataCompletenessReport()">📋 דוח שלמות נתונים</button> <button class="btn b-h" onclick="openExportStudents()">📤 ייצוא</button> <button class="btn b-h" onclick="openImportSt()">📥 ייבוא</button> <button class="btn b-p" onclick="openAddSt()">+ הוסף תלמיד</button>';
+  document.getElementById('tbAct').innerHTML = '<button class="btn b-h" onclick="openDataCompletenessReport()">📋 דוח שלמות נתונים</button> <button class="btn b-h" onclick="runBackfillFamilyInfo()">🔗 השלמת פרטי הורים בין אחים</button> <button class="btn b-h" onclick="openExportStudents()">📤 ייצוא</button> <button class="btn b-h" onclick="openImportSt()">📥 ייבוא</button> <button class="btn b-p" onclick="openAddSt()">+ הוסף תלמיד</button>';
   document.getElementById('pg').innerHTML =
     '<div class="sr"><input id="stSearch" placeholder="חיפוש שם..." value="'+esc(filter||'')+'" oninput="renderStudentsResults()"><select id="stCls" onchange="renderStudentsResults()">'+clsOpts(clsFilter)+'</select><select id="stInst" onchange="renderStudentsResults()">'+instOpts(instFilter)+'</select></div>' +
     '<div id="stResultsBox"></div>';
@@ -938,6 +938,15 @@ function delSt(id){
   }).deleteStudent(id);
 }
 
+// משלים פרטי הורים חסרים בין אחים בכל בסיס הנתונים (למשל: לתלמיד יש רק שם+טלפון של הורה אחד,
+// ולאח/אחות שלו יש את פרטי ההורה השני — מעתה שניהם ישלימו זה את זה). לא דורס ערך קיים.
+function runBackfillFamilyInfo(){
+  google.script.run.withSuccessHandler(function(r){
+    if(!r || !r.ok){ toast((r&&r.err)||'שגיאה','err'); return; }
+    toast(r.updated ? ('הושלמו פרטי הורים ל-'+r.updated+' תלמידים ✓') : 'לא נמצאו פערים להשלמה','ok');
+    if(r.updated) goStudentsKeepFilter();
+  }).backfillFamilyParentInfo();
+}
 function openDataCompletenessReport(){
   window._dcFilter = 'all';
   openM('<div class="m-title">📋 דוח שלמות נתונים</div>' +

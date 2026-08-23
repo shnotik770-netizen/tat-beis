@@ -46,6 +46,10 @@ async function addStudent(data) {
      data.categoryIds || [], data.tz || '', data.birthDate || '', data.address || '']
   );
   await syncStudentCats(id, data.categoryIds || [], []);
+
+  // השלמת פרטי הורים בין בני משפחה (טלפון משותף — מספיק הורה אחד תואם), משני הכיוונים
+  const allStudents = await da.getAllStudents();
+  await mergeFamilyParentInfoFor(id, allStudents);
   return { ok: true, id };
 }
 
@@ -65,14 +69,44 @@ async function updateStudent(data) {
   const { rows: oldRows } = await pool.query('SELECT category_ids FROM students WHERE id=$1', [data.id]);
   await syncStudentCats(data.id, data.categoryIds || [], (oldRows[0] && oldRows[0].category_ids) || []);
 
-  // עדכון פרטי הורים מסונכרן אוטומטית לכל מי שמזוהה כאותה משפחה (טלפון משותף — מספיק הורה אחד תואם)
+  // השלמת פרטי הורים בין בני משפחה (טלפון משותף — מספיק הורה אחד תואם): ממלא רק שדות ריקים בשני הכיוונים
   const allStudents = await da.getAllStudents();
-  const familyIds = logic.familyGroupIds(data.id, allStudents).filter(fid => fid !== data.id);
-  for (const fid of familyIds) {
-    await pool.query('UPDATE students SET dad_name=$2, dad_phone=$3, mom_name=$4, mom_phone=$5 WHERE id=$1',
-      [fid, data.dadName || '', dadPhone, data.momName || '', momPhone]);
-  }
+  await mergeFamilyParentInfoFor(data.id, allStudents);
   return { ok: true };
+}
+
+// מפעיל את מיזוג פרטי ההורים על קבוצת המשפחה של תלמיד נתון וכותב רק שורות שבאמת השתנו
+async function mergeFamilyParentInfoFor(studentId, allStudents) {
+  const familyIds = logic.familyGroupIds(studentId, allStudents);
+  if (familyIds.length < 2) return 0;
+  const byId = {};
+  allStudents.forEach(s => { byId[s.id] = s; });
+  const members = familyIds.map(fid => byId[fid]).filter(Boolean);
+  const merged = logic.mergeFamilyParentInfo(members);
+  let updated = 0;
+  for (const m of merged) {
+    const orig = byId[m.id];
+    if (m.dadName !== orig.dadName || m.dadPhone !== orig.dadPhone || m.momName !== orig.momName || m.momPhone !== orig.momPhone) {
+      await pool.query('UPDATE students SET dad_name=$2, dad_phone=$3, mom_name=$4, mom_phone=$5 WHERE id=$1',
+        [m.id, m.dadName, m.dadPhone, m.momName, m.momPhone]);
+      updated++;
+    }
+  }
+  return updated;
+}
+
+// סריקה חד-פעמית (ניתנת להפעלה חוזרת בבטחה) שמשלימה פרטי הורים חסרים בין בני משפחה בכל בסיס הנתונים
+async function backfillFamilyParentInfo() {
+  const allStudents = await da.getAllStudents();
+  const visited = new Set();
+  let updated = 0;
+  for (const s of allStudents) {
+    if (visited.has(s.id)) continue;
+    const familyIds = logic.familyGroupIds(s.id, allStudents);
+    familyIds.forEach(fid => visited.add(fid));
+    updated += await mergeFamilyParentInfoFor(s.id, allStudents);
+  }
+  return { ok: true, updated };
 }
 
 async function deleteStudent(id) {
@@ -107,6 +141,7 @@ async function importStudentsFromPaste(rawText) {
     );
     added++;
   }
+  if (added) await backfillFamilyParentInfo(); // משלים פרטי הורים חסרים בין אחים שנוספו/קיימים
   return { ok: true, added, skipped, skippedReasons: skippedReasons.slice(0, 20) };
 }
 
@@ -547,7 +582,7 @@ async function deletePendingPayment(pendingId) {
 
 module.exports = {
   pingTest, getAllData,
-  addStudent, updateStudent, deleteStudent, importStudentsFromPaste,
+  addStudent, updateStudent, deleteStudent, importStudentsFromPaste, backfillFamilyParentInfo,
   addCategory, updateCategory, deleteCategory,
   addDemand, updateDemand, removeStudentFromDemand, splitStudentFromDemand, addDemandVaried, deleteDemand,
   addPayment, deletePayment, updatePayment,
