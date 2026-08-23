@@ -86,9 +86,9 @@ async function mergeFamilyParentInfoFor(studentId, allStudents) {
   let updated = 0;
   for (const m of merged) {
     const orig = byId[m.id];
-    if (m.dadName !== orig.dadName || m.dadPhone !== orig.dadPhone || m.momName !== orig.momName || m.momPhone !== orig.momPhone) {
-      await pool.query('UPDATE students SET dad_name=$2, dad_phone=$3, mom_name=$4, mom_phone=$5 WHERE id=$1',
-        [m.id, m.dadName, m.dadPhone, m.momName, m.momPhone]);
+    if (m.dadName !== orig.dadName || m.dadPhone !== orig.dadPhone || m.momName !== orig.momName || m.momPhone !== orig.momPhone || m.address !== orig.address) {
+      await pool.query('UPDATE students SET dad_name=$2, dad_phone=$3, mom_name=$4, mom_phone=$5, address=$6 WHERE id=$1',
+        [m.id, m.dadName, m.dadPhone, m.momName, m.momPhone, m.address]);
       updated++;
     }
   }
