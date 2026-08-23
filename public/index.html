@@ -882,7 +882,9 @@ function renderStudentsResults(){
     return (a.firstName||'').localeCompare(b.firstName||'','he');
   });
 
-  const groupCount = new Set(list.map(function(s){return classKey(s)||'—';})).size;
+  const groupSizes = {};
+  list.forEach(function(s){ const g = classKey(s)||'—'; groupSizes[g] = (groupSizes[g]||0)+1; });
+  const distinctGroupCount = Object.keys(groupSizes).length;
   let lastGroup = null;
   const rows = list.map(function(s){
     const debt = stDebt(s.id);
@@ -890,8 +892,8 @@ function renderStudentsResults(){
     const sibs = D.students.filter(function(x){ return x.id!==s.id && famIds.indexOf(x.id)>-1; });
     let groupHdr = '';
     const g = classKey(s)||'—';
-    if(groupCount>1 && g!==lastGroup){
-      groupHdr = '<tr class="grp-sep"><td colspan="6">כיתה '+(s.class||'—')+(s.institution?' · מוסד '+s.institution:'')+'</td></tr>';
+    if(distinctGroupCount>1 && g!==lastGroup){
+      groupHdr = '<tr class="grp-sep"><td colspan="6">('+groupSizes[g]+') כיתה '+(s.class||'—')+(s.institution?' · מוסד '+s.institution:'')+'</td></tr>';
       lastGroup = g;
     }
     return groupHdr + '<tr class="cr" onclick=\'openLedger("'+s.id+'")\'><td>'+s.lastName+' '+s.firstName+(debt>0?' <span class="badge rd">₪'+debt.toLocaleString()+'</span>':'')+'</td>' +
