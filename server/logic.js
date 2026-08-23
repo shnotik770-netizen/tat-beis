@@ -39,12 +39,31 @@ function studentDebt(studentId, demands, payments) {
   return Math.max(0, fromDemands - generalCredit(studentId, payments));
 }
 
+// נירמול טלפון לספרות בלבד בפורמט מקומי אחיד (0XXXXXXXXX) — מזהה קידומת בינ"ל (972/00972)
+// וחוסר 0 מוביל, כך שמספר שהוזן בכל וריאציה (551234567 / 972-55-669-8745 / 058-558-669-1) מתנרמל לאותו ערך
+function normPhoneDigits(p) {
+  let d = String(p || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.startsWith('00972')) d = d.slice(5);
+  else if (d.startsWith('972')) d = d.slice(3);
+  if (!d.startsWith('0')) d = '0' + d;
+  return d;
+}
+
+// עיצוב טלפון לתצוגה/שמירה בכלל קבוע: 05X-XXXXXXX (נייד) או 0X-XXXXXXX (קווי)
+function formatPhoneIL(p) {
+  const d = normPhoneDigits(p);
+  if (!d) return '';
+  if (d.length === 10) return d.slice(0, 3) + '-' + d.slice(3);
+  if (d.length === 9) return d.slice(0, 2) + '-' + d.slice(2);
+  return d;
+}
+
 // זיהוי משפחה אוטומטי לפי טלפון משותף
 function phonesOf(s) {
-  const norm = p => String(p || '').replace(/[^0-9]/g, '');
   const arr = [];
-  const dp = norm(s.dadPhone); if (dp) arr.push(dp);
-  const mp = norm(s.momPhone); if (mp) arr.push(mp);
+  const dp = normPhoneDigits(s.dadPhone); if (dp) arr.push(dp);
+  const mp = normPhoneDigits(s.momPhone); if (mp) arr.push(mp);
   return arr;
 }
 
@@ -70,4 +89,4 @@ function familyGroupIds(studentId, students) {
   return [...visited];
 }
 
-module.exports = { uid, classKey, paidOnDemand, generalCredit, studentDebt, phonesOf, familyGroupIds };
+module.exports = { uid, classKey, paidOnDemand, generalCredit, studentDebt, phonesOf, familyGroupIds, formatPhoneIL };

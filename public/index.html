@@ -1959,7 +1959,17 @@ function delPayFromList(id){
   if(!confirm('למחוק תשלום זה?')) return;
   google.script.run.withSuccessHandler(function(){ toast('נמחק'); go('pay'); }).deletePayment(id);
 }
-function normPhone(p){ return String(p||'').replace(/[^0-9]/g,''); }
+// נירמול טלפון להשוואה/קיבוץ — מזהה קידומת בינ"ל (972/00972) וחוסר 0 מוביל, כך שאותו מספר
+// שהוזן בכל וריאציה (551234567 / 972-55-669-8745 / 058-558-669-1) מתנרמל לאותו ערך ומאפשר זיהוי אחים
+// גם כאשר תואם רק הורה אחד (לא נדרשת התאמה של שני ההורים)
+function normPhone(p){
+  let d = String(p||'').replace(/\D/g,'');
+  if(!d) return '';
+  if(d.indexOf('00972')===0) d = d.slice(5);
+  else if(d.indexOf('972')===0) d = d.slice(3);
+  if(d.charAt(0)!=='0') d = '0'+d;
+  return d;
+}
 function buildParents() {
   const map = {}; // מקובץ לפי טלפון (זיהוי אמין) — לא לפי טקסט השם
   D.students.filter(function(s){return s.active==='כן';}).forEach(function(s){
