@@ -1848,33 +1848,33 @@ function parseImportDemand(){
   window._imdTitle = title;
   renderImportDemandRows();
 }
+function imdStudentLabel(s){ return s.firstName+' '+s.lastName+' ('+(classKey(s)||'—')+')'; }
+function imdActiveStudents(){ return D.students.filter(function(s){return s.active==='כן';}); }
 function renderImportDemandRows(){
   const rows = window._imdRows;
-  const options = D.students.filter(function(s){return s.active==='כן';}).map(function(s){
-    return '<option value="'+s.id+'">'+s.firstName+' '+s.lastName+' ('+(classKey(s)||'—')+')</option>';
-  }).join('');
+  const activeStudents = imdActiveStudents();
+  const datalistOptions = activeStudents.map(function(s){ return '<option value="'+esc(imdStudentLabel(s))+'">'; }).join('');
   const matchedCount = rows.filter(function(r){return r.matchedId;}).length;
   const html = rows.map(function(r,i){
+    const matched = r.matchedId ? activeStudents.filter(function(s){return s.id===r.matchedId;})[0] : null;
     return '<div class="p-row"><span style="flex:1">'+esc(r.rawName)+' — ₪'+r.amount+'</span>' +
-      '<select id="imdRow_'+i+'" style="width:230px">' +
-        '<option value="">— לא משויך —</option>' + options +
-      '</select></div>';
+      '<input list="imdStudentList" id="imdRow_'+i+'" placeholder="הקלד שם תלמיד לחיפוש..." value="'+(matched?esc(imdStudentLabel(matched)):'')+'" style="width:230px">' +
+      '</div>';
   }).join('');
   openM('<div class="m-title">📥 שיוך שורות לתלמידים</div>' +
-    '<div class="info">'+matchedCount+' מתוך '+rows.length+' שויכו אוטומטית לפי שם. בדוק ותקן במידת הצורך לפני היצירה.</div>' +
+    '<div class="info">'+matchedCount+' מתוך '+rows.length+' שויכו אוטומטית לפי שם. הקלידו בכל שדה כדי לחפש ולתקן/לשייך תלמיד לפני היצירה.</div>' +
+    '<datalist id="imdStudentList">'+datalistOptions+'</datalist>' +
     '<div style="max-height:340px;overflow-y:auto">'+html+'</div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick="saveImportDemand()">✅ צור דרישות</button></div>');
-  rows.forEach(function(r,i){
-    const sel = document.getElementById('imdRow_'+i);
-    if(sel && r.matchedId) sel.value = r.matchedId;
-  });
 }
 function saveImportDemand(){
   const rows = window._imdRows;
+  const labelToId = {};
+  imdActiveStudents().forEach(function(s){ labelToId[imdStudentLabel(s)] = s.id; });
   const items = [];
   rows.forEach(function(r,i){
-    const sel = document.getElementById('imdRow_'+i);
-    const sid = sel ? sel.value : '';
+    const el = document.getElementById('imdRow_'+i);
+    const sid = el ? labelToId[el.value.trim()] : '';
     if(sid && r.amount>0) items.push({studentId:sid, amount:r.amount, notes:''});
   });
   if(!items.length){ toast('אין שורות משויכות עם סכום תקין','err'); return; }
