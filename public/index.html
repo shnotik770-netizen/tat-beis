@@ -217,6 +217,18 @@ th {
   letter-spacing: 0.4px;
 }
 th[onclick]:hover { color: var(--blue); }
+tr.grp-sep td {
+  background: var(--bg);
+  color: var(--t2);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: .3px;
+  padding: 7px 14px;
+  border-top: 1px solid var(--bdr);
+  border-bottom: 1px solid var(--bdr);
+  cursor: default;
+}
+tr.grp-sep:first-child td { border-top: none; }
 td {
   padding: 13px 14px;
   border-bottom: 1px solid var(--bdr);
@@ -608,7 +620,7 @@ function closeSide(){
   document.getElementById('sideBackdrop').classList.remove('open');
 }
 
-function go(page) {
+function go(page, stFilter, stCls, stInst) {
   closeFab();
   ['dash','st','cat','dem','pay','debt','imp'].forEach(function(p){ document.getElementById('n-'+p).classList.toggle('on', p===page); });
   const titles = {dash:'דשבורד', st:'תלמידים', cat:'סיווגים', dem:'דרישות', pay:'תשלומים', debt:'חובות', imp:'שיוך תשלומים'};
@@ -617,7 +629,7 @@ function go(page) {
   document.getElementById('pg').innerHTML = '<div class="loading">טוען...</div>';
   loadAll(function(){
     if(page==='dash') renderDash();
-    else if(page==='st') renderStudents('', '');
+    else if(page==='st') renderStudents(stFilter||'', stCls||'', stInst||'');
     else if(page==='cat') renderCats();
     else if(page==='dem') renderDemands('');
     else if(page==='pay') renderPayments();
@@ -625,6 +637,13 @@ function go(page) {
     else renderImp();
     updNavBadges();
   });
+}
+// חוזר לרשימת התלמידים עם הסינון הנוכחי (חיפוש/כיתה/מוסד) שמור — לשימוש אחרי הוספה/עריכה/מחיקה/ייבוא
+function goStudentsKeepFilter(){
+  const filter = (document.getElementById('stSearch')||{}).value || '';
+  const cls = (document.getElementById('stCls')||{}).value || '';
+  const inst = (document.getElementById('stInst')||{}).value || '';
+  go('st', filter, cls, inst);
 }
 function updNavBadges(){
   const dn = allDebts().length;
@@ -820,6 +839,13 @@ function renderStudents(filter, clsFilter, instFilter) {
     '<div id="stResultsBox"></div>';
   renderStudentsResults();
 }
+// מפתח מיון משפחתי — אחים (לפי משפחה אמיתית, לא רק שם משפחה) מקובצים יחד לפי שם המשפחה המוקדם ביניהם
+function studentFamilyKey(s){
+  const famIds = clientFamilyIds(s.id);
+  if(famIds.length<=1) return s.lastName||'';
+  const members = D.students.filter(function(x){ return famIds.indexOf(x.id)>-1; });
+  return members.map(function(x){return x.lastName||'';}).sort()[0];
+}
 function renderStudentsResults(){
   const filter = document.getElementById('stSearch').value;
   const clsFilter = document.getElementById('stCls').value;
@@ -830,26 +856,63 @@ function renderStudentsResults(){
     const mi = !instFilter || (s.institution||'')===instFilter;
     return mn && mc && mi;
   });
-  list = tblApplySort('students', list, function(col, s){
-    if(col==='name') return s.lastName+' '+s.firstName;
-    if(col==='class') return classKey(s)||'';
-    if(col==='parents') return (s.dadName||s.momName)?1:0;
-    if(col==='status') return s.active==='כן'?1:0;
-    return '';
+
+  // מיון: קודם כל לפי כיתה (ואז מוסד, שכלולים יחד במפתח הקבוצה) — לחיצה על כותרת "כיתה" רק הופכת
+  // את סדר הכיתות, ולחיצה על כותרות אחרות ממיינת בתוך כל כיתה בנפרד. כיתות אף פעם לא מתערבבות.
+  const st = _tblSort['students'];
+  const groupDir = (st && st.col==='class' && st.dir==='desc') ? -1 : 1;
+  const withinCol = (st && st.col && st.col!=='class') ? st.col : null;
+  const withinDir = (st && st.dir==='desc') ? -1 : 1;
+  function withinVal(s){
+    if(withinCol==='name') return s.lastName+' '+s.firstName;
+    if(withinCol==='parents') return (s.dadName||s.momName)?1:0;
+    if(withinCol==='status') return s.active==='כן'?1:0;
+    return null;
+  }
+  list = list.slice().sort(function(a,b){
+    const ga = classKey(a)||'', gb = classKey(b)||'';
+    if(ga!==gb) return ga.localeCompare(gb,'he')*groupDir;
+    if(withinCol){
+      const av = withinVal(a), bv = withinVal(b);
+      const cmp = (typeof av==='number') ? (av-bv) : String(av||'').localeCompare(String(bv||''),'he');
+      if(cmp!==0) return cmp*withinDir;
+    }
+    const fa = studentFamilyKey(a), fb = studentFamilyKey(b);
+    if(fa!==fb) return fa.localeCompare(fb,'he');
+    return (a.firstName||'').localeCompare(b.firstName||'','he');
   });
+
+  const groupCount = new Set(list.map(function(s){return classKey(s)||'—';})).size;
+  let lastGroup = null;
   const rows = list.map(function(s){
     const debt = stDebt(s.id);
     const famIds = clientFamilyIds(s.id);
     const sibs = D.students.filter(function(x){ return x.id!==s.id && famIds.indexOf(x.id)>-1; });
-    return '<tr class="cr" onclick=\'openLedger("'+s.id+'")\'><td>'+s.lastName+' '+s.firstName+(debt>0?' <span class="badge rd">₪'+debt.toLocaleString()+'</span>':'')+'</td>' +
+    let groupHdr = '';
+    const g = classKey(s)||'—';
+    if(groupCount>1 && g!==lastGroup){
+      groupHdr = '<tr class="grp-sep"><td colspan="6">כיתה '+(s.class||'—')+(s.institution?' · מוסד '+s.institution:'')+'</td></tr>';
+      lastGroup = g;
+    }
+    return groupHdr + '<tr class="cr" onclick=\'openLedger("'+s.id+'")\'><td>'+s.lastName+' '+s.firstName+(debt>0?' <span class="badge rd">₪'+debt.toLocaleString()+'</span>':'')+'</td>' +
       '<td><span class="badge">'+(classKey(s)||'—')+'</span></td>' +
       '<td>'+(s.dadName||s.momName?'<span class="badge gr">✓</span>':'<span class="t2">—</span>')+'</td>' +
       '<td>'+(sibs.length?sibs.map(function(x){return '<span class="badge am">'+x.firstName+'</span>';}).join(' '):'—')+'</td>' +
       '<td>'+(s.active==='כן'?'פעיל':'לא פעיל')+'</td>' +
       '<td onclick="event.stopPropagation()"><button class="btn b-h b-sm" onclick=\'openEditSt("'+s.id+'")\'>✏️</button> <button class="btn b-r b-sm" onclick=\'delSt("'+s.id+'")\'>🗑️</button></td></tr>';
   }).join('');
+
+  const distinctInsts = [...new Set(list.map(function(s){return s.institution||'';}).filter(Boolean))];
+  const distinctClasses = [...new Set(list.map(function(s){return s.class||'';}).filter(Boolean))];
+  let summary = 'מציג '+list.length+' תלמידים';
+  const descParts = [];
+  if(distinctInsts.length===1) descParts.push(distinctInsts[0]);
+  if(distinctClasses.length===1) descParts.push('כיתה '+distinctClasses[0]);
+  if(descParts.length) summary += ' של '+descParts.join(' ');
+  if(filter && filter.trim()) summary += ' התואמים ל"'+esc(filter.trim())+'"';
+
   document.getElementById('stResultsBox').innerHTML =
-    '<div class="t2" style="margin-bottom:8px">מציג '+list.length+' מתוך '+D.students.length+' תלמידים</div>' +
+    '<div class="t2" style="margin-bottom:8px">'+summary+'</div>' +
     '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>'+
       th('students','name','שם','renderStudentsResults')+
       th('students','class','כיתה','renderStudentsResults')+
@@ -869,7 +932,7 @@ function delSt(id){
   if(!confirm('למחוק לצמיתות את '+(s?s.firstName+' '+s.lastName:'תלמיד זה')+'? פעולה זו אינה הפיכה.')) return;
   google.script.run.withSuccessHandler(function(r){
     if(r&&!r.ok){ toast(r.err||'שגיאה','err'); return; }
-    toast('נמחק','ok'); go('st');
+    toast('נמחק','ok'); goStudentsKeepFilter();
   }).deleteStudent(id);
 }
 
@@ -1027,7 +1090,7 @@ function doImportSt(){
   if(!txt.trim()){ toast('לא הודבק כלום','err'); return; }
   google.script.run.withSuccessHandler(function(r){
     if(!r.ok){ toast(r.err,'err'); return; }
-    closeM(); toast('יובאו '+r.added+' תלמידים ✓','ok'); go('st');
+    closeM(); toast('יובאו '+r.added+' תלמידים ✓','ok'); goStudentsKeepFilter();
   }).importStudentsFromPaste(txt);
 }
 
@@ -1069,7 +1132,7 @@ function saveAddSt() {
   if(!hasDad && !hasMom){ toast('נא למלא שם + טלפון של הורה אחד לפחות','err'); return; }
   google.script.run.withSuccessHandler(function(r){
     if(!r.ok){ toast(r.err,'err'); return; }
-    closeM(); toast('נוסף ✓','ok'); go('st');
+    closeM(); toast('נוסף ✓','ok'); goStudentsKeepFilter();
   }).addStudent(d);
 }
 function openEditSt(id) {
@@ -1098,7 +1161,7 @@ function saveEditSt(id) {
     tz:v('f_tz'), birthDate:dmyFromISO(v('f_bd')), address:v('f_addr'), institution:v('f_inst')};
   google.script.run.withSuccessHandler(function(r){
     if(!r.ok){ toast(r.err,'err'); return; }
-    closeM(); toast('עודכן ✓','ok'); go('st');
+    closeM(); toast('עודכן ✓','ok'); goStudentsKeepFilter();
   }).updateStudent(d);
 }
 
