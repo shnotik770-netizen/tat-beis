@@ -1631,7 +1631,8 @@ function renderDemGroupCard(g){
 }
 function renderSingleDemRow(d, paid, tot){
   const catNames = (d.categoryIds||[]).map(function(cid){ const c=D.categories.filter(function(y){return y.id===cid;})[0]; return c?c.name:''; }).filter(Boolean);
-  const kids = D.students.filter(function(s){ return d.studentIds.indexOf(s.id)>-1; }).map(function(s){return s.firstName+' '+s.lastName;}).join(', ');
+  const kids = D.students.filter(function(s){ return d.studentIds.indexOf(s.id)>-1; })
+    .map(function(s){ return '<span style="cursor:pointer" onclick=\'event.stopPropagation();openLedger("'+s.id+'")\'>'+s.firstName+' '+s.lastName+'</span>'; }).join(', ');
   return '<div style="background:var(--bg);border-radius:var(--r);padding:10px 12px">' +
     '<div style="display:flex;justify-content:space-between">' +
       '<div>'+(kids||'—')+catNames.map(function(n){return ' <span class="badge">'+n+'</span>';}).join('')+
@@ -2329,9 +2330,10 @@ function renderDebts(filter, clsFilter) {
     const phone = s.phone || s.dadPhone || s.momPhone;
     const demBadges = (s.unpaidDemands||[]).slice(0,4).map(function(t){return '<span class="badge rd" style="margin-left:2px">'+t+'</span>';}).join('');
     const name = s.isFamily ? s.name : (s.lastName+' '+s.firstName);
+    const nameHtml = '<span style="cursor:pointer" onclick=\''+(s.isFamily?'openFamilyLedger':'openLedger')+'("'+s.id+'")\'>'+name+'</span>';
     const waMsg = s.isFamily ? null : buildWaMsg(s.id);
     return '<tr>' +
-      '<td>'+name+(s.active!=='כן'&&!s.isFamily?' <span class="badge gy">לא פעיל</span>':'')+(s.isFamily?' <span class="badge am">👨‍👩‍👧 משפחה</span>':'')+'</td>' +
+      '<td>'+nameHtml+(s.active!=='כן'&&!s.isFamily?' <span class="badge gy">לא פעיל</span>':'')+(s.isFamily?' <span class="badge am">👨‍👩‍👧 משפחה</span>':'')+'</td>' +
       '<td><span class="badge">'+(classKey(s)||'—')+'</span></td>' +
       '<td><strong style="color:var(--red)">₪'+s.debt.toLocaleString()+'</strong></td>' +
       '<td class="t2">'+(s.oldestDate||'—')+'</td>' +
@@ -2375,9 +2377,10 @@ function renderDebtsResults(){
     const phone = s.phone || s.dadPhone || s.momPhone;
     const demBadges = (s.unpaidDemands||[]).slice(0,4).map(function(t){return '<span class="badge rd" style="margin-left:2px">'+t+'</span>';}).join('');
     const name = s.isFamily ? s.name : (s.lastName+' '+s.firstName);
+    const nameHtml = '<span style="cursor:pointer" onclick=\''+(s.isFamily?'openFamilyLedger':'openLedger')+'("'+s.id+'")\'>'+name+'</span>';
     const waMsg = s.isFamily ? null : buildWaMsg(s.id);
     return '<tr>' +
-      '<td>'+name+(s.active!=='כן'&&!s.isFamily?' <span class="badge gy">לא פעיל</span>':'')+(s.isFamily?' <span class="badge am">👨‍👩‍👧 משפחה</span>':'')+'</td>' +
+      '<td>'+nameHtml+(s.active!=='כן'&&!s.isFamily?' <span class="badge gy">לא פעיל</span>':'')+(s.isFamily?' <span class="badge am">👨‍👩‍👧 משפחה</span>':'')+'</td>' +
       '<td><span class="badge">'+(classKey(s)||'—')+'</span></td>' +
       '<td><strong style="color:var(--red)">₪'+s.debt.toLocaleString()+'</strong></td>' +
       '<td class="t2">'+(s.oldestDate||'—')+'</td>' +
