@@ -1938,6 +1938,17 @@ function saveImportDemand(){
   }).addDemandVaried({title:window._imdTitle, items:items});
 }
 // ── Payments ──
+// סינון מהיר על טבלת התשלומים — לחיצה על ערך בעמודה (לא על הכותרת, ששומרת על מיון) מסננת
+// לפי אותו ערך; לחיצה חוזרת על אותו ערך מבטלת את הסינון. מיון הכותרות (th) לא נגע בזה.
+let _payFilter = null; // {col, value, label}
+function setPayFilter(col, value, label){
+  _payFilter = (_payFilter && _payFilter.col===col && _payFilter.value===value) ? null : {col:col, value:value, label:label};
+  renderPayments();
+}
+function clearPayFilter(){ _payFilter = null; renderPayments(); }
+function payCellClick(el){
+  setPayFilter(el.getAttribute('data-col'), el.getAttribute('data-val'), el.getAttribute('data-label'));
+}
 function renderPayments() {
   document.getElementById('tbAct').innerHTML = '<button class="btn b-p" onclick="openPayM()">+ רשום תשלום</button>';
   let list = D.payments.slice().reverse().map(function(p){
@@ -1949,8 +1960,20 @@ function renderPayments() {
       const share = (a!==undefined) ? parseFloat(a)||0 : p.total/Math.max(kidsObjs.length,1);
       return '<span class="badge gy" style="margin-left:3px">'+s.firstName+': ₪'+share.toLocaleString()+'</span>';
     }).join('') : '';
-    return {p:p, kids:kids, breakdown:breakdown, dateSort:dmyToSortable(p.date)};
+    return {p:p, kids:kids, kidsObjs:kidsObjs, breakdown:breakdown, dateSort:dmyToSortable(p.date)};
   });
+
+  if(_payFilter){
+    list = list.filter(function(r){
+      if(_payFilter.col==='kids') return r.kidsObjs.some(function(s){return s.id===_payFilter.value;});
+      if(_payFilter.col==='payer') return (r.p.payer||'—')===_payFilter.value;
+      if(_payFilter.col==='total') return String(r.p.total)===_payFilter.value;
+      if(_payFilter.col==='method') return (r.p.method||'—')===_payFilter.value;
+      if(_payFilter.col==='date') return r.p.date===_payFilter.value;
+      return true;
+    });
+  }
+
   list = tblApplySort('payments', list, function(col, r){
     if(col==='kids') return r.kids;
     if(col==='payer') return r.p.payer||'';
@@ -1961,11 +1984,18 @@ function renderPayments() {
   });
   const rows = list.map(function(r){
     const p = r.p;
-    return '<tr><td>'+r.kids+(r.breakdown?'<div style="margin-top:4px">'+r.breakdown+'</div>':'')+'</td><td>'+(p.payer||'—')+'</td><td>₪'+p.total.toLocaleString()+'</td>' +
-      '<td><span class="badge">'+(p.method||'—')+'</span></td><td>'+p.date+'</td>' +
+    const kidsHtml = r.kidsObjs.map(function(s){
+      return '<span style="cursor:pointer" data-col="kids" data-val="'+esc(s.id)+'" data-label="'+esc('תלמיד: '+s.firstName+' '+s.lastName)+'" onclick="payCellClick(this)">'+s.firstName+' '+s.lastName+'</span>';
+    }).join(', ');
+    return '<tr><td>'+kidsHtml+(r.breakdown?'<div style="margin-top:4px">'+r.breakdown+'</div>':'')+'</td>' +
+      '<td style="cursor:pointer" data-col="payer" data-val="'+esc(p.payer||'—')+'" data-label="'+esc('משלם: '+(p.payer||'—'))+'" onclick="payCellClick(this)">'+(p.payer||'—')+'</td>' +
+      '<td style="cursor:pointer" data-col="total" data-val="'+esc(String(p.total))+'" data-label="'+esc('סכום: ₪'+p.total.toLocaleString())+'" onclick="payCellClick(this)">₪'+p.total.toLocaleString()+'</td>' +
+      '<td style="cursor:pointer" data-col="method" data-val="'+esc(p.method||'—')+'" data-label="'+esc('שיטה: '+(p.method||'—'))+'" onclick="payCellClick(this)"><span class="badge">'+(p.method||'—')+'</span></td>' +
+      '<td style="cursor:pointer" data-col="date" data-val="'+esc(p.date)+'" data-label="'+esc('תאריך: '+p.date)+'" onclick="payCellClick(this)">'+p.date+'</td>' +
       '<td><button class="btn b-h b-sm" onclick=\'openEditPay("'+p.id+'")\'>✏️</button> <button class="btn b-r b-sm" onclick=\'delPayFromList("'+p.id+'")\'>🗑️</button></td></tr>';
   }).join('');
   document.getElementById('pg').innerHTML =
+    (_payFilter ? '<div class="info" style="display:flex;justify-content:space-between;align-items:center;gap:8px">מסונן לפי: '+esc(_payFilter.label)+'<button class="btn b-h b-sm" onclick="clearPayFilter()">נקה סינון ✕</button></div>' : '') +
     '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>'+
       th('payments','kids','תלמידים','renderPayments')+
       th('payments','payer','משלם','renderPayments')+
@@ -1973,7 +2003,7 @@ function renderPayments() {
       th('payments','method','שיטה','renderPayments')+
       th('payments','date','תאריך','renderPayments','desc')+
       '<th></th></tr></thead>' +
-    '<tbody>'+(rows || '<tr><td colspan="6" class="empty">אין תשלומים</td></tr>')+'</tbody></table></div>';
+    '<tbody>'+(rows || '<tr><td colspan="6" class="empty">'+(_payFilter?'אין תשלומים תואמים לסינון':'אין תשלומים')+'</td></tr>')+'</tbody></table></div>';
 }
 function openEditPay(id){
   const p = D.payments.filter(function(x){return x.id===id;})[0];
@@ -2152,13 +2182,15 @@ function onPayerInput(val){
   }
 
   const parents = buildParents();
-  const exactMatch = parents.find(function(p){ return p.name === val; });
+  // שם פרטי לבדו אינו מזהה אמין — אם יש בדיוק הורה אחד עם השם הזה בוחרים אותו אוטומטית,
+  // אבל אם כמה הורים שונים חולקים אותו שם (למשל שני "עדן" ממשפחות שונות) לא מנחשים ביניהם:
+  // ממשיכים להצעות למטה, שם הבחירה נעשית לפי טלפון (המזהה האמין) ולא לפי הטקסט
+  const exactMatches = parents.filter(function(p){ return p.name === val; });
 
-  if(exactMatch){
-    // נבחר הורה קיים במדויק — מציגים את הילדים שלו
+  if(exactMatches.length===1){
     suggestBox.style.display = 'none';
     window._payMode = 'parent';
-    showParentChildren(exactMatch);
+    showParentChildren(exactMatches[0]);
     return;
   }
 
@@ -2171,25 +2203,28 @@ function onPayerInput(val){
   }).slice(0,6);
   if(matches.length){
     suggestBox.innerHTML = matches.map(function(p){
-      return '<div class="p-row" style="cursor:pointer;padding:6px 8px" onmousedown="selectPayerSuggestion(\''+esc(p.name).replace(/'/g,"\\'")+'\')"><span>'+esc(p.name)+(p.surnames&&p.surnames.length?' <span class="t2">('+esc(p.surnames.join(', '))+')</span>':'')+'</span><span class="t2">'+esc(p.kidNames)+'</span></div>';
+      return '<div class="p-row" style="cursor:pointer;padding:6px 8px" onmousedown="selectPayerSuggestion(\''+esc(p.phone)+'\')"><span>'+esc(p.name)+(p.surnames&&p.surnames.length?' <span class="t2">('+esc(p.surnames.join(', '))+')</span>':'')+'</span><span class="t2">'+esc(p.kidNames)+'</span></div>';
     }).join('');
     suggestBox.style.display = '';
   } else {
     suggestBox.style.display = 'none';
   }
 
-  // אין התאמה מדויקת — מצב "שם ידני": פותחים חיפוש תלמיד (לא רשימה מלאה)
+  // אין התאמה יחידה וודאית — מצב "שם ידני": פותחים חיפוש תלמיד (לא רשימה מלאה)
   window._payMode = 'manual';
   switchToManualStudentPicker();
 }
 
-function selectPayerSuggestion(name){
-  document.getElementById('p_payer').value = name;
-  document.getElementById('payerSuggest').style.display = 'none';
+// בוחרים לפי טלפון (המזהה האמין של buildParents), לא לפי שם — כי שני הורים שונים יכולים לחלוק
+// שם פרטי זהה (למשל "עדן"), ובחירה לפי שם הייתה עלולה לפתוח בטעות את משפחת ההורה הלא-נכון
+function selectPayerSuggestion(phone){
   const parents = buildParents();
-  const p = parents.find(function(x){ return x.name===name; });
+  const p = parents.find(function(x){ return x.phone===phone; });
+  if(!p) return;
+  document.getElementById('p_payer').value = p.name;
+  document.getElementById('payerSuggest').style.display = 'none';
   window._payMode = 'parent';
-  if(p) showParentChildren(p);
+  showParentChildren(p);
 }
 
 function showParentChildren(parent){
@@ -2481,14 +2516,61 @@ function openExportDebt(){
 }
 
 // ── Pending Payments Import/Assign ──
-// תווית תלמיד לשיוך מהיר: שם + כיתה + חוב אישי + חוב משפחתי + שמות הורים — כדי שאפשר יהיה
-// לזהות ולחפש גם לפי שם הורה, לא רק שם תלמיד
-function impStudentLabel(s){
+// חיפוש תלמיד לשיוך מהיר, לפי שם תלמיד או שם הורה. ההצעות מוצגות בתיבה מותאמת-אישית (לא datalist
+// דפדפן) כדי שהמידע — שם ילד, הורים, חוב אישי, חוב משפחתי, בסדר הזה — ישבור שורה ולא ייחתך.
+function impMatchStudents(query){
+  const q = (query||'').trim().toLowerCase();
+  if(!q) return [];
+  return D.students.filter(function(s){
+    if(s.active!=='כן') return false;
+    const nameMatch = (s.firstName+' '+s.lastName).toLowerCase().indexOf(q)>-1;
+    const parentMatch = ((s.dadName||'')+' '+(s.momName||'')).toLowerCase().indexOf(q)>-1;
+    return nameMatch || parentMatch;
+  }).slice(0,8);
+}
+function impSuggestionRow(s){
   const debt = Math.round(stDebt(s.id));
-  const famIds = clientFamilyIds(s.id);
-  const famDebt = Math.round(famIds.reduce(function(sum,fid){ return sum+stDebt(fid); },0));
+  const famDebt = Math.round(clientFamilyIds(s.id).reduce(function(sum,fid){ return sum+stDebt(fid); },0));
   const parents = [s.dadName, s.momName].filter(Boolean).join(', ');
-  return s.firstName+' '+s.lastName+' ('+(classKey(s)||'—')+') — חוב אישי ₪'+debt.toLocaleString()+' · חוב משפחתי ₪'+famDebt.toLocaleString()+(parents?' · הורים: '+parents:'');
+  return '<div class="p-row" style="flex-direction:column;align-items:flex-start;gap:2px;cursor:pointer;padding:7px 8px" data-id="'+s.id+'" data-name="'+esc(s.firstName+' '+s.lastName)+'">' +
+    '<div><strong>'+esc(s.firstName+' '+s.lastName)+'</strong> <span class="badge">'+(classKey(s)||'—')+'</span></div>' +
+    (parents?'<div class="t2">הורים: '+esc(parents)+'</div>':'') +
+    '<div class="t2">חוב אישי: ₪'+debt.toLocaleString()+'</div>' +
+    '<div class="t2">חוב משפחתי: ₪'+famDebt.toLocaleString()+'</div>' +
+  '</div>';
+}
+// תיבת הצעות משותפת אחת, ממוקמת ב-position:fixed לפי מיקום שדה הקלט הפעיל — כך שהיא לא נחתכת
+// גם כשהשדה נמצא בתוך טבלה עם גלילה אופקית (overflow-x) שהייתה חוסמת תיבה ממוקמת יחסית
+function impSearchInput(inputEl, onSelect){
+  let box = document.getElementById('impSuggestBox');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'impSuggestBox';
+    box.className = 'card';
+    box.style.cssText = 'display:none;position:fixed;z-index:200;overflow-y:auto;padding:4px;box-sizing:border-box;';
+    document.body.appendChild(box);
+  }
+  inputEl.removeAttribute('data-selected-id');
+  const matches = impMatchStudents(inputEl.value);
+  if(!matches.length){ box.style.display='none'; return; }
+  const rect = inputEl.getBoundingClientRect();
+  box.style.width = '290px';
+  box.style.left = Math.max(4, Math.min(rect.left, window.innerWidth-294))+'px';
+  box.style.top = (rect.bottom+4)+'px';
+  box.style.maxHeight = Math.max(120, Math.min(320, window.innerHeight-rect.bottom-16))+'px';
+  box.innerHTML = matches.map(impSuggestionRow).join('');
+  box.style.display = 'block';
+  Array.prototype.slice.call(box.querySelectorAll('[data-id]')).forEach(function(el){
+    el.onmousedown = function(){
+      inputEl.value = el.getAttribute('data-name');
+      inputEl.setAttribute('data-selected-id', el.getAttribute('data-id'));
+      box.style.display = 'none';
+      if(onSelect) onSelect(inputEl);
+    };
+  });
+}
+function impHideSuggest(){
+  setTimeout(function(){ const box=document.getElementById('impSuggestBox'); if(box) box.style.display='none'; }, 150);
 }
 function renderImp() {
   let list = (D.pending || []).slice();
@@ -2501,25 +2583,17 @@ function renderImp() {
     '<button class="btn b-p" onclick="openPasteImp()">📥 הדבק נתונים</button> ' +
     '<button class="btn b-h b-sm" id="impDelSelBtn" onclick="delSelectedImp()" disabled>🗑️ מחק נבחרים (0)</button>' +
     (list.length ? ' <button class="btn b-r b-sm" onclick="delAllImp()">🗑️ מחק הכל</button>' : '');
-  const activeStudents = D.students.filter(function(s){return s.active==='כן';});
-  window._impLabelToId = {};
-  const datalistOptions = activeStudents.map(function(s){
-    const label = impStudentLabel(s);
-    window._impLabelToId[label] = s.id;
-    return '<option value="'+esc(label)+'">';
-  }).join('');
   const rows = list.map(function(p){
     return '<tr><td><input type="checkbox" class="impChk" data-id="'+p.id+'" onchange="impSelChanged()"></td>' +
       '<td>'+p.date+'</td><td>'+(p.payer||'—')+'</td><td>₪'+p.amount.toLocaleString()+'</td>' +
       '<td>'+(p.method?'<span class="badge">'+p.method+'</span>':'<span class="t2">—</span>')+'</td>' +
       '<td>'+(p.notes||'—')+'</td>' +
-      '<td style="white-space:nowrap"><input list="impStudentList" placeholder="הקלד שם תלמיד/הורה..." onchange=\'quickAssignImp("'+p.id+'",this)\' style="width:230px">' +
+      '<td style="white-space:nowrap"><input type="text" data-pid="'+p.id+'" placeholder="הקלד שם תלמיד/הורה..." oninput="impSearchInput(this,impRowSelected)" onblur="impHideSuggest()" style="width:230px">' +
       ' <button class="btn b-h b-sm" title="שיוך מותאם (סכום חלקי / שיטה אחרת)" onclick=\'openAssignImp("'+p.id+'")\'>⚙️</button>' +
       ' <button class="btn b-r b-sm" title="מחק שורה זו" onclick=\'delSingleImp("'+p.id+'")\'>🗑️</button></td></tr>';
   }).join('');
   document.getElementById('pg').innerHTML =
     '<div class="info">הדבק נתוני תשלומים מאקסל (תאריך, שם משלם, סכום, שיטה, הערות). הקלידו שם תלמיד או הורה ובחרו מהרשימה כדי לשייך מיד את הסכום המלא — שורות שלא תשייכו ימשיכו לחכות כאן. אפשר לסמן שורות ולמחוק בודדות או הכל.</div>' +
-    '<datalist id="impStudentList">'+datalistOptions+'</datalist>' +
     '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>'+
       '<th style="width:30px"><input type="checkbox" id="impSelAll" onchange="impToggleAll(this.checked)"></th>'+
       th('imp','date','תאריך','renderImp')+
@@ -2577,10 +2651,12 @@ function delSingleImp(pendingId){
     toast('נמחק','ok'); go('imp');
   }).deletePendingPayment(pendingId);
 }
+function impRowSelected(inputEl){
+  quickAssignImp(inputEl.getAttribute('data-pid'), inputEl);
+}
 function quickAssignImp(pendingId, inputEl){
-  const label = inputEl.value.trim();
-  const sid = window._impLabelToId ? window._impLabelToId[label] : null;
-  if(!sid){ toast('לא נמצא תלמיד תואם — יש לבחור מתוך הרשימה המוצעת','err'); inputEl.value=''; return; }
+  const sid = inputEl.getAttribute('data-selected-id');
+  if(!sid){ toast('יש לבחור תלמיד מתוך ההצעות המוצעות','err'); return; }
   const p = (D.pending||[]).filter(function(x){return x.id===pendingId;})[0];
   if(!p) return;
   const amounts = {}; amounts[sid] = p.amount;
@@ -2614,13 +2690,14 @@ function openAssignImp(pendingId){
   if(!p) return;
   openM('<div class="m-title">🔗 שיוך תשלום</div>' +
     '<div class="info">תאריך: '+p.date+' · משלם: '+(p.payer||'—')+' · סכום: ₪'+p.amount.toLocaleString()+'</div>' +
-    '<div class="fg"><label>תלמיד (הקלד שם תלמיד או הורה)</label><input id="ai_st" list="impStudentList"></div>' +
+    '<div class="fg" style="position:relative"><label>תלמיד (הקלד שם תלמיד או הורה)</label><input id="ai_st" type="text" oninput="impSearchInput(this)" onblur="impHideSuggest()"></div>' +
     '<div class="fg"><label>סכום לתלמיד זה</label><input id="ai_amt" type="number" value="'+p.amount+'"></div>' +
     '<div class="fg"><label>אופן תשלום</label>'+methodChipsHTML('aiMethodChips', p.method||'מזומן')+'</div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick=\'doAssignImp("'+pendingId+'")\'>✅ שייך</button></div>');
 }
 function doAssignImp(pendingId){
-  const sid = window._impLabelToId ? window._impLabelToId[v('ai_st').trim()] : null;
+  const stEl = document.getElementById('ai_st');
+  const sid = stEl ? stEl.getAttribute('data-selected-id') : null;
   const amt = parseFloat(v('ai_amt'))||0;
   if(!sid||!amt){ toast('נא לבחור תלמיד מהרשימה ולמלא סכום','err'); return; }
   const amounts = {}; amounts[sid]=amt;
