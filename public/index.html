@@ -1320,7 +1320,12 @@ function renderFamilyLedger(data){
     '<tbody>'+(rows||'<tr><td colspan="6" class="empty">אין נתונים</td></tr>')+'</tbody></table></div>' +
     '<div class="fg"><label>שליחת הדוח בוואטסאפ להורה</label><div class="chips" id="famParentChips">'+(parentChips||'<span class="t2">אין מספרי טלפון רשומים</span>')+'</div></div>' +
     '<div class="fg"><label>בני המשפחה</label><div class="card" style="padding:0 12px">'+membersList+'</div></div>' +
-    '<div class="m-foot"><button class="btn b-h" onclick="closeM()">סגור</button><a class="btn b-g" id="famWaBtn" style="pointer-events:none;opacity:.5" target="_blank">💬 שלח דוח בוואטסאפ</a></div>';
+    '<div class="m-foot"><button class="btn b-h" onclick="closeM()">סגור</button><button class="btn b-g" onclick="openPayMForFamilyLedger()">💳 רישום תשלום</button><a class="btn b-g" id="famWaBtn" style="pointer-events:none;opacity:.5" target="_blank">💬 שלח דוח בוואטסאפ</a></div>';
+}
+function openPayMForFamilyLedger(){
+  if(!window._familyData) return;
+  const ids = window._familyData.members.map(function(m){return m.student.id;});
+  openPayMForFamily(ids);
 }
 function delStFromFamily(id){
   const s = D.students.filter(function(x){return x.id===id;})[0];
@@ -2069,9 +2074,21 @@ function getMethod(containerId){
   return m;
 }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
+// דרישות עם אותה כותרת (למשל "ספרי לימוד" — שורה נפרדת לכל תלמיד עם סכום משלו) מוצגות פעם אחת בלבד
+function payDemTitleGroups(){
+  const groups = {};
+  D.demands.forEach(function(d){ (groups[d.title] = groups[d.title]||[]).push(d); });
+  return groups;
+}
 function openPayM(presetStudentId, presetDemandId) {
-  const demChips = D.demands.map(function(d){
-    return '<span class="chip'+(d.id===presetDemandId?' on':'')+'" onclick="this.classList.toggle(\'on\');syncPayFromDems()" data-id="'+d.id+'">'+d.title+' <small>₪'+d.amount+'</small></span>';
+  const presetDemand = presetDemandId ? D.demands.filter(function(x){return x.id===presetDemandId;})[0] : null;
+  const titleGroups = payDemTitleGroups();
+  const demChips = Object.keys(titleGroups).map(function(title){
+    const rows = titleGroups[title];
+    const amounts = [...new Set(rows.map(function(d){return d.amount;}))];
+    const amtLabel = amounts.length===1 ? (' <small>₪'+amounts[0]+'</small>') : ' <small>סכום משתנה</small>';
+    const isOn = presetDemand && presetDemand.title===title;
+    return '<span class="chip'+(isOn?' on':'')+'" onclick="this.classList.toggle(\'on\');syncPayFromDems()" data-title="'+esc(title)+'">'+esc(title)+amtLabel+'</span>';
   }).join('');
   openM('<div class="m-title">💳 רישום תשלום</div>' +
     '<div class="info">כל תשלום חייב תלמיד אחד לפחות. סכום נפרד לכל תלמיד שנבחר.</div>' +
@@ -2093,14 +2110,28 @@ function openPayM(presetStudentId, presetDemandId) {
   window._payMode = 'none'; // none | parent | manual
   window._payPresetStudentId = presetStudentId || null;
 
-  if(presetDemandId){ syncPayFromDems(); }
   if(presetStudentId){
-    // אם הגענו עם תלמיד מוגדר מראש (למשל מכרטסת/מדרישה) — נפתח ישר את בורר התלמידים במצב ידני
-    switchToManualStudentPicker();
-    const chip = document.querySelector('#payStChips .chip[data-id="'+presetStudentId+'"]');
-    if(chip) chip.classList.add('on');
-    updPayAmts();
+    // אם הגענו עם תלמיד מוגדר מראש (למשל מכרטסת/מדרישה) — מציגים אותו ישר, כבר נבחר
+    renderPresetPayStudents([presetStudentId]);
   }
+  if(presetDemandId){ syncPayFromDems(); }
+}
+// מציג ישירות (בלי צורך בחיפוש) צ'יפים נבחרים-מראש לתלמידים נתונים, כל אחד עם החוב הפתוח שלו כרגע
+function renderPresetPayStudents(studentIds){
+  const students = D.students.filter(function(s){ return studentIds.indexOf(s.id)>-1; });
+  const html = students.map(function(s){
+    const debt = stDebt(s.id);
+    return '<span class="chip on" onclick="tcPayStudent(this)" data-id="'+s.id+'" data-name="'+esc(s.firstName+' '+s.lastName)+'" data-cls="'+esc(classKey(s))+'">'+s.firstName+' '+s.lastName+' <small>('+(classKey(s)||'—')+')</small>'+(debt>0?' <small style="color:var(--red)">חוב ₪'+debt.toLocaleString()+'</small>':'')+'</span>';
+  }).join('');
+  document.getElementById('payStudentSection').innerHTML =
+    '<div class="fg"><label>עבור מי מהילדים משלמים? (ניתן להסיר מי שלא רלוונטי)</label><div class="chips" id="payStChips">'+html+'</div></div>';
+  document.getElementById('payAmtsSection').style.display = '';
+  window._payMode = 'manual';
+  updPayAmts();
+}
+function openPayMForFamily(studentIds){
+  openPayM();
+  renderPresetPayStudents(studentIds);
 }
 
 function onPayerInput(val){
@@ -2160,7 +2191,8 @@ function selectPayerSuggestion(name){
 function showParentChildren(parent){
   const kidIds = parent.kidIds;
   const html = D.students.filter(function(s){ return kidIds.indexOf(s.id)>-1; }).map(function(s){
-    return '<span class="chip" onclick="tcPayStudent(this)" data-id="'+s.id+'" data-name="'+esc(s.firstName+' '+s.lastName)+'" data-cls="'+esc(classKey(s))+'">'+s.firstName+' '+s.lastName+' <small>('+(classKey(s)||'—')+')</small></span>';
+    const debt = stDebt(s.id);
+    return '<span class="chip" onclick="tcPayStudent(this)" data-id="'+s.id+'" data-name="'+esc(s.firstName+' '+s.lastName)+'" data-cls="'+esc(classKey(s))+'">'+s.firstName+' '+s.lastName+' <small>('+(classKey(s)||'—')+')</small>'+(debt>0?' <small style="color:var(--red)">חוב ₪'+debt.toLocaleString()+'</small>':'')+'</span>';
   }).join('');
   document.getElementById('payStudentSection').innerHTML =
     '<div class="fg"><label>עבור מי מהילדים משלמים? (בחר ידנית — חובה לפחות אחד)</label><div class="chips" id="payStChips">'+html+'</div></div>';
@@ -2193,34 +2225,27 @@ function renderManualStudentChips(filterText, cls){
   });
   box.innerHTML = list.map(function(s){
     const on = prevSelected.indexOf(s.id)>-1 || s.id===window._payPresetStudentId;
-    return '<span class="chip'+(on?' on':'')+'" onclick="tcPayStudent(this)" data-id="'+s.id+'" data-name="'+esc(s.firstName+' '+s.lastName)+'" data-cls="'+esc(classKey(s))+'">'+s.firstName+' '+s.lastName+' <small>('+(classKey(s)||'—')+')</small></span>';
+    const debt = stDebt(s.id);
+    return '<span class="chip'+(on?' on':'')+'" onclick="tcPayStudent(this)" data-id="'+s.id+'" data-name="'+esc(s.firstName+' '+s.lastName)+'" data-cls="'+esc(classKey(s))+'">'+s.firstName+' '+s.lastName+' <small>('+(classKey(s)||'—')+')</small>'+(debt>0?' <small style="color:var(--red)">חוב ₪'+debt.toLocaleString()+'</small>':'')+'</span>';
   }).join('') || (hasQuery ? '<span class="t2">לא נמצאו תלמידים</span>' : '<span class="t2">הקלד שם לחיפוש...</span>');
   updPayAmts();
 }
 function tcPayStudent(el){ el.classList.toggle('on'); updPayAmts(); }
+function pickedDemTitles(){
+  return Array.prototype.slice.call(document.querySelectorAll('#payDemChips .chip.on')).map(function(el){ return el.getAttribute('data-title'); });
+}
 function syncPayFromDems(){
-  const dids = pickedChips('payDemChips');
+  const titles = pickedDemTitles();
   const sids = {};
-  dids.forEach(function(did){
-    const d = D.demands.filter(function(x){return x.id===did;})[0];
-    if(d) d.studentIds.forEach(function(sid){ sids[sid]=1; });
+  titles.forEach(function(title){
+    D.demands.filter(function(d){return d.title===title;}).forEach(function(d){ d.studentIds.forEach(function(sid){ sids[sid]=1; }); });
   });
   const sidList = Object.keys(sids);
   if(!sidList.length) return;
 
   // אם עדיין לא נבחר הקשר משלם — פותחים ישירות בחירת תלמידים עם התלמידים הרלוונטיים לדרישה
   if(window._payMode==='none'){
-    window._payMode = 'manual';
-    document.getElementById('payStudentSection').innerHTML =
-      '<div class="fg"><label>חיפוש תלמיד (חובה לפחות אחד)</label>' +
-        '<div class="sr"><input placeholder="הקלד שם תלמיד..." oninput="filterPayStudents(this.value, document.getElementById(\'payClsF\').value)"><select id="payClsF" onchange="filterPayStudents(document.querySelector(\'#payStudentSection .sr input\').value, this.value)">'+clsOpts()+'</select></div>' +
-        '<div class="chips" id="payStChips" style="max-height:110px"></div></div>';
-    document.getElementById('payAmtsSection').style.display = '';
-    const box = document.getElementById('payStChips');
-    box.innerHTML = D.students.filter(function(s){ return sidList.indexOf(s.id)>-1; }).map(function(s){
-      return '<span class="chip on" onclick="tcPayStudent(this)" data-id="'+s.id+'" data-name="'+esc(s.firstName+' '+s.lastName)+'" data-cls="'+esc(classKey(s))+'">'+s.firstName+' '+s.lastName+' <small>('+(classKey(s)||'—')+')</small></span>';
-    }).join('');
-    updPayAmts();
+    renderPresetPayStudents(sidList);
     return;
   }
 
@@ -2260,7 +2285,14 @@ function savePay() {
     if(a>0){ amounts[sid]=a; hasAmt=true; }
   });
   if(!hasAmt){ toast('נא להזין סכום לפחות לתלמיד אחד','err'); return; }
-  const d = {studentIds:sids, demandIds: pickedChips('payDemChips'), amounts:amounts, payer:v('p_payer'), date: v('p_date')||todayISO(), method:getMethod('payMethodChips')};
+  // ממפים את כותרות הדרישות שנבחרו לשורות הדרישה הספציפיות של התלמידים שבאמת נכללים בתשלום הזה
+  const selTitles = pickedDemTitles();
+  const demandIds = [];
+  selTitles.forEach(function(title){
+    D.demands.filter(function(d){ return d.title===title && d.studentIds.some(function(sid){return sids.indexOf(sid)>-1;}); })
+      .forEach(function(d){ if(demandIds.indexOf(d.id)===-1) demandIds.push(d.id); });
+  });
+  const d = {studentIds:sids, demandIds: demandIds, amounts:amounts, payer:v('p_payer'), date: v('p_date')||todayISO(), method:getMethod('payMethodChips')};
   google.script.run.withSuccessHandler(function(r){
     if(r&&!r.ok){ toast(r.err,'err'); return; }
     closeM(); toast('נרשם ✓','ok'); go('pay');
