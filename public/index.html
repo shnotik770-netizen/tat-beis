@@ -682,6 +682,8 @@ function allDebts() {
   return D.students.map(function(s){
     const debt = stDebt(s.id);
     if(debt<0.01) return null;
+    // אם ברמת המשפחה המאזן מאוזן (למשל תשלום שלא פוצל בדיוק בין אחים), לא מציגים את הילד כבעל חוב
+    if(familyNetDebt(clientFamilyIds(s.id))<0.01) return null;
     const unpaidObjs = D.demands.filter(function(d){ return d.studentIds.indexOf(s.id)>-1 && paidOnDem(s.id,d.id) < d.amount-0.01; });
     const unpaid = unpaidObjs.map(function(d){return d.title;});
     const dates = unpaidObjs.map(function(d){return d.createdDate;}).filter(Boolean).sort(function(a,b){return dmyToSortable(a)-dmyToSortable(b);});
@@ -1077,9 +1079,11 @@ function renderExportStudents(){
   } else {
     list = D.students.slice();
   }
-  const header = ['שם משפחה','שם פרטי','כיתה','מוסד','סטטוס','שם אב','טל אב','שם אם','טל אם'].join('\t');
+  const header = ['שם משפחה','שם פרטי','כיתה','מוסד','סטטוס','שם אב','טל אב','שם אם','טל אם','חוב משפחתי'].join('\t');
   const lines = list.map(function(s){
-    return [s.lastName,s.firstName,s.class,s.institution||'',s.active,s.dadName||'',s.dadPhone||'',s.momName||'',s.momPhone||''].join('\t');
+    const famDebt = familyNetDebt(clientFamilyIds(s.id));
+    const debtCol = famDebt>0.01 ? ('כן — ₪'+Math.round(famDebt).toLocaleString()) : 'לא';
+    return [s.lastName,s.firstName,s.class,s.institution||'',s.active,s.dadName||'',s.dadPhone||'',s.momName||'',s.momPhone||'',debtCol].join('\t');
   });
   const text = header+'\n'+lines.join('\n');
   document.getElementById('expOut').innerHTML =
@@ -2487,13 +2491,16 @@ function impStudentLabel(s){
   return s.firstName+' '+s.lastName+' ('+(classKey(s)||'—')+') — חוב אישי ₪'+debt.toLocaleString()+' · חוב משפחתי ₪'+famDebt.toLocaleString()+(parents?' · הורים: '+parents:'');
 }
 function renderImp() {
-  document.getElementById('tbAct').innerHTML = '<button class="btn b-p" onclick="openPasteImp()">📥 הדבק נתונים</button>';
   let list = (D.pending || []).slice();
   list = tblApplySort('imp', list, function(col, p){
     if(col==='date') return dmyToSortable(p.date);
     if(col==='amount') return p.amount;
     return p[col]||'';
   });
+  document.getElementById('tbAct').innerHTML =
+    '<button class="btn b-p" onclick="openPasteImp()">📥 הדבק נתונים</button> ' +
+    '<button class="btn b-h b-sm" id="impDelSelBtn" onclick="delSelectedImp()" disabled>🗑️ מחק נבחרים (0)</button>' +
+    (list.length ? ' <button class="btn b-r b-sm" onclick="delAllImp()">🗑️ מחק הכל</button>' : '');
   const activeStudents = D.students.filter(function(s){return s.active==='כן';});
   window._impLabelToId = {};
   const datalistOptions = activeStudents.map(function(s){
@@ -2502,23 +2509,73 @@ function renderImp() {
     return '<option value="'+esc(label)+'">';
   }).join('');
   const rows = list.map(function(p){
-    return '<tr><td>'+p.date+'</td><td>'+(p.payer||'—')+'</td><td>₪'+p.amount.toLocaleString()+'</td>' +
+    return '<tr><td><input type="checkbox" class="impChk" data-id="'+p.id+'" onchange="impSelChanged()"></td>' +
+      '<td>'+p.date+'</td><td>'+(p.payer||'—')+'</td><td>₪'+p.amount.toLocaleString()+'</td>' +
       '<td>'+(p.method?'<span class="badge">'+p.method+'</span>':'<span class="t2">—</span>')+'</td>' +
       '<td>'+(p.notes||'—')+'</td>' +
       '<td style="white-space:nowrap"><input list="impStudentList" placeholder="הקלד שם תלמיד/הורה..." onchange=\'quickAssignImp("'+p.id+'",this)\' style="width:230px">' +
-      ' <button class="btn b-h b-sm" title="שיוך מותאם (סכום חלקי / שיטה אחרת)" onclick=\'openAssignImp("'+p.id+'")\'>⚙️</button></td></tr>';
+      ' <button class="btn b-h b-sm" title="שיוך מותאם (סכום חלקי / שיטה אחרת)" onclick=\'openAssignImp("'+p.id+'")\'>⚙️</button>' +
+      ' <button class="btn b-r b-sm" title="מחק שורה זו" onclick=\'delSingleImp("'+p.id+'")\'>🗑️</button></td></tr>';
   }).join('');
   document.getElementById('pg').innerHTML =
-    '<div class="info">הדבק נתוני תשלומים מאקסל (תאריך, שם משלם, סכום, שיטה, הערות). הקלידו שם תלמיד או הורה ובחרו מהרשימה כדי לשייך מיד את הסכום המלא — שורות שלא תשייכו ימשיכו לחכות כאן.</div>' +
+    '<div class="info">הדבק נתוני תשלומים מאקסל (תאריך, שם משלם, סכום, שיטה, הערות). הקלידו שם תלמיד או הורה ובחרו מהרשימה כדי לשייך מיד את הסכום המלא — שורות שלא תשייכו ימשיכו לחכות כאן. אפשר לסמן שורות ולמחוק בודדות או הכל.</div>' +
     '<datalist id="impStudentList">'+datalistOptions+'</datalist>' +
     '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>'+
+      '<th style="width:30px"><input type="checkbox" id="impSelAll" onchange="impToggleAll(this.checked)"></th>'+
       th('imp','date','תאריך','renderImp')+
       th('imp','payer','משלם','renderImp')+
       th('imp','amount','סכום','renderImp')+
       th('imp','method','שיטה','renderImp')+
       th('imp','notes','הערות','renderImp')+
       '<th></th></tr></thead>' +
-    '<tbody>'+(rows || '<tr><td colspan="6" class="empty">אין תשלומים ממתינים</td></tr>')+'</tbody></table></div>';
+    '<tbody>'+(rows || '<tr><td colspan="7" class="empty">אין תשלומים ממתינים</td></tr>')+'</tbody></table></div>';
+}
+function impSelectedIds(){
+  return Array.prototype.slice.call(document.querySelectorAll('.impChk:checked')).map(function(el){return el.getAttribute('data-id');});
+}
+function impToggleAll(checked){
+  document.querySelectorAll('.impChk').forEach(function(el){ el.checked = checked; });
+  impSelChanged();
+}
+function impSelChanged(){
+  const ids = impSelectedIds();
+  const btn = document.getElementById('impDelSelBtn');
+  if(btn){ btn.textContent = '🗑️ מחק נבחרים ('+ids.length+')'; btn.disabled = ids.length===0; }
+  const total = document.querySelectorAll('.impChk').length;
+  const all = document.getElementById('impSelAll');
+  if(all) all.checked = total>0 && ids.length===total;
+}
+function delImpBatch(ids){
+  let remaining = ids.length, failed = 0;
+  ids.forEach(function(id){
+    google.script.run.withSuccessHandler(function(r){
+      if(!r || !r.ok) failed++;
+      remaining--;
+      if(remaining===0){
+        toast(failed ? ('נמחקו '+(ids.length-failed)+' מתוך '+ids.length) : ('נמחקו '+ids.length+' שורות ✓'), failed?'err':'ok');
+        go('imp');
+      }
+    }).deletePendingPayment(id);
+  });
+}
+function delSelectedImp(){
+  const ids = impSelectedIds();
+  if(!ids.length) return;
+  if(!confirm('למחוק '+ids.length+' שורות ממתינות לשיוך? פעולה זו אינה הפיכה.')) return;
+  delImpBatch(ids);
+}
+function delAllImp(){
+  const ids = (D.pending||[]).map(function(p){return p.id;});
+  if(!ids.length){ toast('אין שורות למחוק','ok'); return; }
+  if(!confirm('למחוק את כל '+ids.length+' השורות הממתינות לשיוך? פעולה זו אינה הפיכה.')) return;
+  delImpBatch(ids);
+}
+function delSingleImp(pendingId){
+  if(!confirm('למחוק שורה זו?')) return;
+  google.script.run.withSuccessHandler(function(r){
+    if(r&&!r.ok){ toast(r.err||'שגיאה','err'); return; }
+    toast('נמחק','ok'); go('imp');
+  }).deletePendingPayment(pendingId);
 }
 function quickAssignImp(pendingId, inputEl){
   const label = inputEl.value.trim();
