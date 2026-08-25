@@ -2301,26 +2301,43 @@ function savePay() {
 
 // ── Debts ──
 let debtSortCol = 'oldest', debtSortDir = 'asc', debtViewMode = 'child';
+// חוב נטו ברמת המשפחה: סה"כ מה שנדרש מכל בני המשפחה מול סה"כ מה ששולם עבורם, לפני שמעגלים כל ילד
+// בנפרד ל-0. כך תשלום שלא פוצל בדיוק בין אחים (למשל תשלום כללי אחד שמכסה כמה ילדים) לא משאיר
+// "חוב" מדומה אצל מי מהם כל עוד המשפחה כולה שילמה את מה שנדרש ממנה.
+function familyNetDebt(memberIds){
+  let demanded = 0, paid = 0;
+  memberIds.forEach(function(sid){
+    D.demands.filter(function(d){ return d.studentIds.indexOf(sid)>-1; }).forEach(function(d){
+      demanded += d.amount;
+      paid += paidOnDem(sid, d.id);
+    });
+    paid += genCredit(sid);
+  });
+  return Math.max(0, Math.round((demanded-paid)*100)/100);
+}
 function buildFamilyDebtGroups(list){
   const seen = {};
   const groups = [];
   list.forEach(function(s){
     if(seen[s.id]) return;
-    const famIds = clientFamilyIds(s.id);
-    const members = list.filter(function(x){ return famIds.indexOf(x.id)>-1; });
-    members.forEach(function(m){ seen[m.id]=1; });
-    const totalDebt = members.reduce(function(sum,m){return sum+m.debt;},0);
-    const oldestSort = Math.min.apply(null, members.map(function(m){return m.oldestSort;}));
-    const oldestDate = members.slice().sort(function(a,b){return a.oldestSort-b.oldestSort;})[0].oldestDate;
-    const classes = members.map(function(m){return m.class;}).filter(function(v,i,a){return v && a.indexOf(v)===i;});
-    const phone = members.map(function(m){return m.dadPhone||m.momPhone;}).filter(Boolean)[0];
+    const famIds = clientFamilyIds(s.id); // כל בני המשפחה — גם מי שאין לו כרגע חוב אישי
+    famIds.forEach(function(fid){ seen[fid]=1; });
+    const totalDebt = familyNetDebt(famIds);
+    if(totalDebt<0.01) return; // נטו המשפחה מסולקת — לא מציגים שורה גם אם ילד בודד "נראה" בחוב
+
+    const familyStudents = D.students.filter(function(x){ return famIds.indexOf(x.id)>-1; });
+    const debtMembers = list.filter(function(x){ return famIds.indexOf(x.id)>-1; }); // לצורך דרישות פתוחות/תאריך ותיק
+    const oldestSort = debtMembers.length ? Math.min.apply(null, debtMembers.map(function(m){return m.oldestSort;})) : 99999999;
+    const oldestDate = debtMembers.length ? debtMembers.slice().sort(function(a,b){return a.oldestSort-b.oldestSort;})[0].oldestDate : '';
+    const classes = familyStudents.map(function(m){return m.class;}).filter(function(v,i,a){return v && a.indexOf(v)===i;});
+    const phone = familyStudents.map(function(m){return m.dadPhone||m.momPhone;}).filter(Boolean)[0];
     groups.push({
-      id: members[0].id, isFamily:true, members: members,
-      name: members.map(function(m){return m.firstName+' '+m.lastName;}).join(', '),
+      id: familyStudents[0].id, isFamily:true, members: familyStudents,
+      name: familyStudents.map(function(m){return m.firstName+' '+m.lastName;}).join(', '),
       class: classes.join(', '),
-      debt: Math.round(totalDebt*100)/100,
+      debt: totalDebt,
       oldestSort: oldestSort, oldestDate: oldestDate, phone: phone,
-      unpaidDemands: members.reduce(function(arr,m){return arr.concat(m.unpaidDemands||[]);},[]).filter(function(v,i,a){return a.indexOf(v)===i;})
+      unpaidDemands: debtMembers.reduce(function(arr,m){return arr.concat(m.unpaidDemands||[]);},[]).filter(function(v,i,a){return a.indexOf(v)===i;})
     });
   });
   return groups;
