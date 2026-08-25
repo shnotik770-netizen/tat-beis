@@ -2460,6 +2460,15 @@ function openExportDebt(){
 }
 
 // ── Pending Payments Import/Assign ──
+// תווית תלמיד לשיוך מהיר: שם + כיתה + חוב אישי + חוב משפחתי + שמות הורים — כדי שאפשר יהיה
+// לזהות ולחפש גם לפי שם הורה, לא רק שם תלמיד
+function impStudentLabel(s){
+  const debt = Math.round(stDebt(s.id));
+  const famIds = clientFamilyIds(s.id);
+  const famDebt = Math.round(famIds.reduce(function(sum,fid){ return sum+stDebt(fid); },0));
+  const parents = [s.dadName, s.momName].filter(Boolean).join(', ');
+  return s.firstName+' '+s.lastName+' ('+(classKey(s)||'—')+') — חוב אישי ₪'+debt.toLocaleString()+' · חוב משפחתי ₪'+famDebt.toLocaleString()+(parents?' · הורים: '+parents:'');
+}
 function renderImp() {
   document.getElementById('tbAct').innerHTML = '<button class="btn b-p" onclick="openPasteImp()">📥 הדבק נתונים</button>';
   let list = (D.pending || []).slice();
@@ -2468,14 +2477,23 @@ function renderImp() {
     if(col==='amount') return p.amount;
     return p[col]||'';
   });
+  const activeStudents = D.students.filter(function(s){return s.active==='כן';});
+  window._impLabelToId = {};
+  const datalistOptions = activeStudents.map(function(s){
+    const label = impStudentLabel(s);
+    window._impLabelToId[label] = s.id;
+    return '<option value="'+esc(label)+'">';
+  }).join('');
   const rows = list.map(function(p){
     return '<tr><td>'+p.date+'</td><td>'+(p.payer||'—')+'</td><td>₪'+p.amount.toLocaleString()+'</td>' +
       '<td>'+(p.method?'<span class="badge">'+p.method+'</span>':'<span class="t2">—</span>')+'</td>' +
       '<td>'+(p.notes||'—')+'</td>' +
-      '<td><button class="btn b-p b-sm" onclick=\'openAssignImp("'+p.id+'")\'>🔗 שייך</button></td></tr>';
+      '<td style="white-space:nowrap"><input list="impStudentList" placeholder="הקלד שם תלמיד/הורה..." onchange=\'quickAssignImp("'+p.id+'",this)\' style="width:230px">' +
+      ' <button class="btn b-h b-sm" title="שיוך מותאם (סכום חלקי / שיטה אחרת)" onclick=\'openAssignImp("'+p.id+'")\'>⚙️</button></td></tr>';
   }).join('');
   document.getElementById('pg').innerHTML =
-    '<div class="info">הדבק נתוני תשלומים מאקסל (תאריך, שם משלם, סכום, שיטה, הערות), ואז שייך כל שורה לתלמיד/ים.</div>' +
+    '<div class="info">הדבק נתוני תשלומים מאקסל (תאריך, שם משלם, סכום, שיטה, הערות). הקלידו שם תלמיד או הורה ובחרו מהרשימה כדי לשייך מיד את הסכום המלא — שורות שלא תשייכו ימשיכו לחכות כאן.</div>' +
+    '<datalist id="impStudentList">'+datalistOptions+'</datalist>' +
     '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>'+
       th('imp','date','תאריך','renderImp')+
       th('imp','payer','משלם','renderImp')+
@@ -2484,6 +2502,19 @@ function renderImp() {
       th('imp','notes','הערות','renderImp')+
       '<th></th></tr></thead>' +
     '<tbody>'+(rows || '<tr><td colspan="6" class="empty">אין תשלומים ממתינים</td></tr>')+'</tbody></table></div>';
+}
+function quickAssignImp(pendingId, inputEl){
+  const label = inputEl.value.trim();
+  const sid = window._impLabelToId ? window._impLabelToId[label] : null;
+  if(!sid){ toast('לא נמצא תלמיד תואם — יש לבחור מתוך הרשימה המוצעת','err'); inputEl.value=''; return; }
+  const p = (D.pending||[]).filter(function(x){return x.id===pendingId;})[0];
+  if(!p) return;
+  const amounts = {}; amounts[sid] = p.amount;
+  inputEl.disabled = true;
+  google.script.run.withSuccessHandler(function(r){
+    if(r&&!r.ok){ toast(r.err,'err'); inputEl.disabled=false; return; }
+    toast('שוייך ✓','ok'); go('imp');
+  }).assignPendingPayment(pendingId, {studentIds:[sid], demandIds:[], amounts:amounts, method:p.method||'מזומן'});
 }
 function openPasteImp() {
   openM('<div class="m-title">📥 הדבקת תשלומים</div>' +
@@ -2507,19 +2538,17 @@ function doPasteImp(){
 function openAssignImp(pendingId){
   const p = (D.pending||[]).filter(function(x){return x.id===pendingId;})[0];
   if(!p) return;
-  const studentOpts = D.students.filter(function(s){return s.active==='כן';}).map(function(s){
-    return '<option value="'+s.id+'">'+s.firstName+' '+s.lastName+'</option>';
-  }).join('');
   openM('<div class="m-title">🔗 שיוך תשלום</div>' +
     '<div class="info">תאריך: '+p.date+' · משלם: '+(p.payer||'—')+' · סכום: ₪'+p.amount.toLocaleString()+'</div>' +
-    '<div class="fg"><label>תלמיד</label><select id="ai_st">'+studentOpts+'</select></div>' +
+    '<div class="fg"><label>תלמיד (הקלד שם תלמיד או הורה)</label><input id="ai_st" list="impStudentList"></div>' +
     '<div class="fg"><label>סכום לתלמיד זה</label><input id="ai_amt" type="number" value="'+p.amount+'"></div>' +
     '<div class="fg"><label>אופן תשלום</label>'+methodChipsHTML('aiMethodChips', p.method||'מזומן')+'</div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick=\'doAssignImp("'+pendingId+'")\'>✅ שייך</button></div>');
 }
 function doAssignImp(pendingId){
-  const sid = v('ai_st'), amt = parseFloat(v('ai_amt'))||0;
-  if(!sid||!amt){ toast('נא למלא תלמיד וסכום','err'); return; }
+  const sid = window._impLabelToId ? window._impLabelToId[v('ai_st').trim()] : null;
+  const amt = parseFloat(v('ai_amt'))||0;
+  if(!sid||!amt){ toast('נא לבחור תלמיד מהרשימה ולמלא סכום','err'); return; }
   const amounts = {}; amounts[sid]=amt;
   google.script.run.withSuccessHandler(function(r){
     if(r&&!r.ok){ toast(r.err,'err'); return; }
