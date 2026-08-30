@@ -1126,9 +1126,30 @@ function renderExportStudents(){
 // ── דוח חובות ל-PDF (הדפסת דפדפן) ──
 // בונה דוח מודפס של כל הילדים שלמשפחתם יש חוב פתוח (allDebts כבר מסננת ברמת המשפחה, לא אישית),
 // מקובץ מוסד ← כיתה, ועם פירוט מלא של הדרישות והתשלומים האישיים של כל ילד מתחתיו.
+// שלב 1: לפני ההדפסה בפועל, מבקשים אילו מוסדות וכיתות לכלול בדוח (הכל מסומן כברירת מחדל)
 function openDebtReportPDF(){
   const debts = allDebts();
   if(!debts.length){ toast('אין תלמידים עם חוב פתוח','ok'); return; }
+  const insts = [...new Set(debts.map(function(s){ return s.institution||'ללא מוסד'; }))].sort(function(a,b){ return a.localeCompare(b,'he'); });
+  const classes = [...new Set(debts.map(function(s){ return s.class||'ללא כיתה'; }))].sort(function(a,b){ return a.localeCompare(b,'he'); });
+  const instChips = insts.map(function(i){ return '<span class="chip on" onclick="this.classList.toggle(\'on\')" data-id="'+esc(i)+'">'+esc(i)+'</span>'; }).join('');
+  const clsChips = classes.map(function(c){ return '<span class="chip on" onclick="this.classList.toggle(\'on\')" data-id="'+esc(c)+'">'+esc(c)+'</span>'; }).join('');
+  openM('<div class="m-title">📄 דוח חובות ל-PDF</div>' +
+    '<div class="info">בחר/י אילו מוסדות וכיתות לכלול בדוח (הכל מסומן כברירת מחדל — לחיצה על צ׳יפ מסמנת/מבטלת)</div>' +
+    '<div class="fg"><label>מוסדות</label><div class="chips" id="rptInstChips">'+instChips+'</div></div>' +
+    '<div class="fg"><label>כיתות</label><div class="chips" id="rptClsChips">'+clsChips+'</div></div>' +
+    '<div class="m-foot"><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick="genDebtReportPDF()">🖨️ צור והדפס</button></div>');
+}
+// שלב 2: מסננים לפי הבחירה, בונים את ה-HTML של הדוח בתוך #printReport, וקוראים ל-window.print()
+function genDebtReportPDF(){
+  const selInsts = pickedChips('rptInstChips');
+  const selClasses = pickedChips('rptClsChips');
+  if(!selInsts.length || !selClasses.length){ toast('נא לבחור לפחות מוסד אחד וכיתה אחת','err'); return; }
+  const debts = allDebts().filter(function(s){
+    const inst = s.institution||'ללא מוסד', cls = s.class||'ללא כיתה';
+    return selInsts.indexOf(inst)>-1 && selClasses.indexOf(cls)>-1;
+  });
+  if(!debts.length){ toast('אין תלמידים עם חוב התואמים לסינון שנבחר','err'); return; }
 
   const groups = {};
   debts.forEach(function(s){
@@ -1153,6 +1174,7 @@ function openDebtReportPDF(){
   });
 
   document.getElementById('printReport').innerHTML = html;
+  closeM();
   window.print();
 }
 function buildDebtReportStudentBlock(s){
