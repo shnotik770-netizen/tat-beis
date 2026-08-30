@@ -128,4 +128,18 @@ function parsePastedDate(raw) {
   return isNaN(dt2.getTime()) ? new Date() : dt2;
 }
 
-module.exports = { uid, classKey, paidOnDemand, generalCredit, studentDebt, phonesOf, familyGroupIds, formatPhoneIL, mergeFamilyParentInfo, parsePastedDate };
+// כינויים נפוצים לשיטות תשלום שמוזנים בטעות בהדבקה, ממופים לערך הקנוני שהמערכת מכירה —
+// כדי ש"ביט"/"צ'ק" למשל יזוהו כשיטת תשלום תקינה ולא ייפלו לשדה ההערות כטקסט לא מזוהה
+const PAYMENT_METHOD_ALIASES = {
+  'ביט': 'אפליקציה', 'bit': 'אפליקציה',
+  "צ'ק": 'שיק', 'צ׳ק': 'שיק', 'צק': 'שיק', 'check': 'שיק', 'chek': 'שיק'
+};
+function normalizePaymentMethod(raw, validMethods) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (validMethods.includes(s)) return s;
+  const alias = PAYMENT_METHOD_ALIASES[s] || PAYMENT_METHOD_ALIASES[s.toLowerCase()];
+  return alias || null;
+}
+
+module.exports = { uid, classKey, paidOnDemand, generalCredit, studentDebt, phonesOf, familyGroupIds, formatPhoneIL, mergeFamilyParentInfo, parsePastedDate, normalizePaymentMethod };

@@ -540,9 +540,10 @@ async function importPendingFromPaste(rawText) {
     if (cells.length < 2) { skipped++; skippedReasons.push(`שורה ${idx + 1}: פחות מ-2 עמודות`); continue; }
     const dateRaw = cells[0], payerRaw = cells[1], amountRaw = cells[2];
     let methodRaw = cells[3] || '', notesRaw = cells[4] || '';
-    if (methodRaw && validMethods.indexOf(methodRaw) === -1) {
-      notesRaw = methodRaw + (notesRaw ? ' ' + notesRaw : '');
-      methodRaw = '';
+    if (methodRaw) {
+      const normalizedMethod = logic.normalizePaymentMethod(methodRaw, validMethods);
+      if (normalizedMethod) methodRaw = normalizedMethod;
+      else { notesRaw = methodRaw + (notesRaw ? ' ' + notesRaw : ''); methodRaw = ''; }
     }
     const amount = parseFloat(String(amountRaw || '').replace(/[^\d.-]/g, ''));
     if (!amount || amount <= 0) { skipped++; skippedReasons.push(`שורה ${idx + 1}: ${payerRaw || 'ללא שם'} — סכום לא תקין`); continue; }
