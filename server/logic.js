@@ -111,4 +111,21 @@ function mergeFamilyParentInfo(members) {
   }));
 }
 
-module.exports = { uid, classKey, paidOnDemand, generalCredit, studentDebt, phonesOf, familyGroupIds, formatPhoneIL, mergeFamilyParentInfo };
+// מפרש תאריך שהודבק מגיליון אלקטרוני (למשל "05/08/2026") כפורמט ישראלי DD/MM/YYYY במפורש.
+// ה-Date המובנה של JS מפרש מחרוזות עם / כפורמט האמריקאי MM/DD/YYYY, מה שהופך "05/08/2026"
+// (5 באוגוסט) בטעות ל-8 במאי — לכן יום/חודש מפורקים ידנית ולא מועברים ל-new Date(string).
+function parsePastedDate(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return new Date();
+  const m = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
+  if (m) {
+    let d = parseInt(m[1], 10), mo = parseInt(m[2], 10), y = parseInt(m[3], 10);
+    if (y < 100) y += 2000;
+    const dt = new Date(y, mo - 1, d);
+    if (!isNaN(dt.getTime()) && dt.getDate() === d && dt.getMonth() === mo - 1) return dt;
+  }
+  const dt2 = new Date(s);
+  return isNaN(dt2.getTime()) ? new Date() : dt2;
+}
+
+module.exports = { uid, classKey, paidOnDemand, generalCredit, studentDebt, phonesOf, familyGroupIds, formatPhoneIL, mergeFamilyParentInfo, parsePastedDate };
