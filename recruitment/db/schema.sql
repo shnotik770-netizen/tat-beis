@@ -1,11 +1,13 @@
 -- מערכת גיוס לערב שותפות — בית ספר חב"ד עפולה
--- אין מסך כניסה: בוחרים "מי אני" מרשימת השגרירים, וזו הזהות שנשלחת בכל בקשה.
+-- אין מסך כניסה לשגריר רגיל: בוחרים "מי אני" מרשימת השגרירים, וזו הזהות שנשלחת בכל בקשה.
+-- רק למנהל יש קוד גישה (pin_hash).
 
 CREATE TABLE IF NOT EXISTS ambassadors (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   phone TEXT,
   is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  pin_hash TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -24,6 +26,7 @@ CREATE TABLE IF NOT EXISTS contacts (
   status TEXT,
   ambassador_candidate BOOLEAN NOT NULL DEFAULT FALSE,
   candidate_owner_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL,
+  self_of_ambassador_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL,
   created_by INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -44,17 +47,20 @@ CREATE TABLE IF NOT EXISTS status_history (
   changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- הימצאות מעברי גרסה — כל אלה חייבים לרוץ *לפני* יצירת אינדקסים/מיגרציית נתונים למטה,
+-- כי CREATE TABLE IF NOT EXISTS הוא no-op על טבלה קיימת ולא מוסיף לה עמודות חדשות.
+ALTER TABLE ambassadors ADD COLUMN IF NOT EXISTS pin_hash TEXT;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS ambassador_candidate BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS candidate_owner_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS self_of_ambassador_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL;
+DROP TABLE IF EXISTS sessions;
+
 CREATE INDEX IF NOT EXISTS idx_contacts_ambassador ON contacts(ambassador_id);
 CREATE INDEX IF NOT EXISTS idx_status_history_contact ON status_history(contact_id);
 CREATE INDEX IF NOT EXISTS idx_contact_categories_contact ON contact_categories(contact_id);
 
--- הימצאות מעברי גרסה: הסרת מסך הכניסה (PIN) וטבלת ה-sessions ממערכות קיימות
-ALTER TABLE ambassadors DROP COLUMN IF EXISTS pin_hash;
-DROP TABLE IF EXISTS sessions;
-
--- הימצאות מעברי גרסה: הוספת "מועמד/ת לשגרירות" למערכות קיימות (CREATE TABLE IF NOT EXISTS לא מוסיף עמודות לטבלה קיימת)
-ALTER TABLE contacts ADD COLUMN IF NOT EXISTS ambassador_candidate BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE contacts ADD COLUMN IF NOT EXISTS candidate_owner_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL;
+-- לכל שגריר מותר לסמן "זה אני" על איש קשר אחד בלבד — אינדקס ייחודי חלקי (מתעלם מ-NULL)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_self_ambassador ON contacts(self_of_ambassador_id) WHERE self_of_ambassador_id IS NOT NULL;
 
 -- מעבר מסיווג יחיד (category_id) לסיווגים מרובים (contact_categories)
 DO $$

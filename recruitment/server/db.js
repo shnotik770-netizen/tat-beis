@@ -1,6 +1,7 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
+const { hashPin } = require('./auth');
 
 if (!process.env.DATABASE_URL) {
   console.warn('⚠️  DATABASE_URL is not set. Set it to your PostgreSQL connection string (Railway sets this automatically once you add a Postgres plugin).');
@@ -20,10 +21,22 @@ async function migrate() {
 
 async function seedAdmin() {
   const { rows } = await pool.query('SELECT COUNT(*)::int AS c FROM ambassadors');
-  if (rows[0].c > 0) return;
-  const name = process.env.ADMIN_NAME || 'מנהל';
-  await pool.query('INSERT INTO ambassadors (name, phone, is_admin) VALUES ($1, $2, TRUE)', [name, null]);
-  console.log(`👤 נוצר שגריר-מנהל ראשוני: "${name}". אפשר לבחור אותו מיד ממסך "מי אתה?" ולהוסיף משם שגרירים נוספים.`);
+  const defaultPin = process.env.ADMIN_PIN || '1414';
+  if (rows[0].c === 0) {
+    const name = process.env.ADMIN_NAME || 'מנהל';
+    await pool.query(
+      'INSERT INTO ambassadors (name, phone, is_admin, pin_hash) VALUES ($1, $2, TRUE, $3)',
+      [name, null, hashPin(defaultPin)]
+    );
+    console.log(`👤 נוצר שגריר-מנהל ראשוני: "${name}" עם קוד גישה "${defaultPin}". רק למנהלים יש קוד; שגרירים רגילים נכנסים בלי קוד ממסך "מי אתה?".`);
+    return;
+  }
+  // מערכות קיימות: לוודא שלכל מנהל שאין לו עדיין קוד גישה יוגדר קוד ברירת מחדל
+  const { rows: adminsWithoutPin } = await pool.query('SELECT id, name FROM ambassadors WHERE is_admin = TRUE AND pin_hash IS NULL');
+  for (const a of adminsWithoutPin) {
+    await pool.query('UPDATE ambassadors SET pin_hash = $1 WHERE id = $2', [hashPin(defaultPin), a.id]);
+    console.log(`🔑 הוגדר קוד גישה ברירת מחדל "${defaultPin}" למנהל הקיים "${a.name}" (אפשר לשנות מתוך מסך הניהול).`);
+  }
 }
 
 module.exports = { pool, migrate };

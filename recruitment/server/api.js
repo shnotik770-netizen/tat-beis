@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('./db');
 const STATUSES = require('./statuses');
+const { hashPin, verifyPin } = require('./auth');
 
 const router = express.Router();
 
@@ -90,6 +91,7 @@ const CONTACT_SELECT = `
          c.ambassador_candidate, cand.id AS candidate_owner_id, cand.name AS candidate_owner_name,
          amb.id AS ambassador_id, amb.name AS ambassador_name,
          creator.name AS created_by_name,
+         selfamb.id AS self_of_ambassador_id, selfamb.name AS self_of_ambassador_name,
          COALESCE((
            SELECT json_agg(json_build_object('id', cat.id, 'name', cat.name) ORDER BY cat.name)
            FROM contact_categories cc JOIN categories cat ON cat.id = cc.category_id
@@ -99,6 +101,7 @@ const CONTACT_SELECT = `
   LEFT JOIN ambassadors amb ON amb.id = c.ambassador_id
   LEFT JOIN ambassadors creator ON creator.id = c.created_by
   LEFT JOIN ambassadors cand ON cand.id = c.candidate_owner_id
+  LEFT JOIN ambassadors selfamb ON selfamb.id = c.self_of_ambassador_id
 `;
 
 function shapeContact(r) {
@@ -109,7 +112,8 @@ function shapeContact(r) {
     ambassador: r.ambassador_id ? { id: r.ambassador_id, name: r.ambassador_name } : null,
     createdBy: r.created_by_name || null,
     isAmbassadorCandidate: r.ambassador_candidate,
-    candidateOwner: r.candidate_owner_id ? { id: r.candidate_owner_id, name: r.candidate_owner_name } : null
+    candidateOwner: r.candidate_owner_id ? { id: r.candidate_owner_id, name: r.candidate_owner_name } : null,
+    selfOfAmbassador: r.self_of_ambassador_id ? { id: r.self_of_ambassador_id, name: r.self_of_ambassador_name } : null
   };
 }
 
@@ -255,6 +259,56 @@ router.delete('/contacts/:id', requireAuth, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// פעולות מרוכזות על כמה אנשי קשר שנבחרו ביחד ברשימה
+router.post('/contacts/bulk-categories', requireAuth, ah(async (req, res) => {
+  const { ids, categories } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'לא נבחרו אנשי קשר' });
+  const categoryIds = await resolveCategoryIds(categories);
+  if (!categoryIds.length) return res.status(400).json({ error: 'יש להזין סיווג אחד לפחות' });
+  for (const contactId of ids) {
+    for (const categoryId of categoryIds) {
+      await pool.query(
+        'INSERT INTO contact_categories (contact_id, category_id) SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM contacts WHERE id = $1) ON CONFLICT DO NOTHING',
+        [contactId, categoryId]
+      );
+    }
+  }
+  const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = ANY($1::int[])', [ids]);
+  res.json(rows.map(shapeContact));
+}));
+
+router.post('/contacts/bulk-delete', requireAuth, ah(async (req, res) => {
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'לא נבחרו אנשי קשר' });
+  const { rowCount } = await pool.query('DELETE FROM contacts WHERE id = ANY($1::int[])', [ids]);
+  res.json({ ok: true, deleted: rowCount });
+}));
+
+// סימון "זה אני": כל שגריר יכול לסמן איש קשר אחד בלבד ברשימה כמייצג אותו עצמו
+// (למשל אם הוא הופיע ברשימה המקורית לפני שהצטרף כשגריר). מוסר אוטומטית מכל איש קשר אחר שסימן קודם.
+router.post('/contacts/:id/self', requireAuth, ah(async (req, res) => {
+  const { self } = req.body || {};
+  const { rowCount } = await pool.query('SELECT 1 FROM contacts WHERE id = $1', [req.params.id]);
+  if (!rowCount) return res.status(404).json({ error: 'איש קשר לא נמצא' });
+  if (self === false) {
+    await pool.query(
+      'UPDATE contacts SET self_of_ambassador_id = NULL, updated_at = now() WHERE id = $1 AND self_of_ambassador_id = $2',
+      [req.params.id, req.ambassador.id]
+    );
+  } else {
+    await pool.query(
+      'UPDATE contacts SET self_of_ambassador_id = NULL, updated_at = now() WHERE self_of_ambassador_id = $1',
+      [req.ambassador.id]
+    );
+    await pool.query(
+      'UPDATE contacts SET self_of_ambassador_id = $1, updated_at = now() WHERE id = $2',
+      [req.ambassador.id, req.params.id]
+    );
+  }
+  const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);
+  res.json(shapeContact(rows[0]));
+}));
+
 // סימון "מועמד/ת לשגרירות": לוקחים אחריות בעצמכם, או משאירים פתוח לשאלה של שגרירים אחרים.
 // פתוח לכל זהות — זו בדיוק המטרה: שכל אחד יוכל להציע ולקחת/להעביר הלאה אחריות.
 router.post('/contacts/:id/candidate', requireAuth, ah(async (req, res) => {
@@ -308,13 +362,26 @@ router.get('/ambassadors', ah(async (req, res) => {
   res.json(rows.map(r => ({ id: r.id, name: r.name, phone: r.phone, isAdmin: r.is_admin, contactCount: r.contact_count })));
 }));
 
+// בדיקת קוד גישה — נקודת קצה פתוחה (משמשת את מסך "מי אתה?" לפני שיש זהות בכלל).
+// לשגריר רגיל (לא מנהל) אין קוד בכלל, אז הבדיקה עוברת אוטומטית.
+router.post('/ambassadors/:id/verify-pin', ah(async (req, res) => {
+  const { pin } = req.body || {};
+  const { rows } = await pool.query('SELECT is_admin, pin_hash FROM ambassadors WHERE id = $1', [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ ok: false, error: 'שגריר לא נמצא' });
+  if (!rows[0].is_admin) return res.json({ ok: true });
+  const ok = verifyPin(pin, rows[0].pin_hash);
+  if (!ok) return res.status(401).json({ ok: false, error: 'קוד גישה שגוי' });
+  res.json({ ok: true });
+}));
+
 router.post('/ambassadors', requireAdmin, ah(async (req, res) => {
-  const { name, phone, isAdmin } = req.body || {};
+  const { name, phone, isAdmin, pin } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'יש להזין שם' });
+  if (isAdmin && !pin) return res.status(400).json({ error: 'יש להגדיר קוד גישה למנהל' });
   try {
     const { rows } = await pool.query(
-      'INSERT INTO ambassadors (name, phone, is_admin) VALUES ($1, $2, $3) RETURNING id, name, phone, is_admin',
-      [name.trim(), phone || null, !!isAdmin]
+      'INSERT INTO ambassadors (name, phone, is_admin, pin_hash) VALUES ($1, $2, $3, $4) RETURNING id, name, phone, is_admin',
+      [name.trim(), phone || null, !!isAdmin, isAdmin ? hashPin(pin) : null]
     );
     res.status(201).json({ id: rows[0].id, name: rows[0].name, phone: rows[0].phone, isAdmin: rows[0].is_admin, contactCount: 0 });
   } catch (e) {
@@ -324,13 +391,14 @@ router.post('/ambassadors', requireAdmin, ah(async (req, res) => {
 }));
 
 router.patch('/ambassadors/:id', requireAdmin, ah(async (req, res) => {
-  const { name, phone, isAdmin } = req.body || {};
+  const { name, phone, isAdmin, pin } = req.body || {};
   const updates = [];
   const values = [];
   let i = 1;
   if (name !== undefined) { updates.push(`name = $${i++}`); values.push(name.trim()); }
   if (phone !== undefined) { updates.push(`phone = $${i++}`); values.push(phone); }
   if (isAdmin !== undefined) { updates.push(`is_admin = $${i++}`); values.push(!!isAdmin); }
+  if (pin) { updates.push(`pin_hash = $${i++}`); values.push(hashPin(pin)); }
   if (!updates.length) return res.json({ ok: true });
   values.push(req.params.id);
   await pool.query(`UPDATE ambassadors SET ${updates.join(', ')} WHERE id = $${i}`, values);
@@ -344,6 +412,57 @@ router.delete('/ambassadors/:id', requireAdmin, ah(async (req, res) => {
   await pool.query('UPDATE contacts SET ambassador_id = NULL WHERE ambassador_id = $1', [req.params.id]);
   await pool.query('DELETE FROM ambassadors WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
+}));
+
+// --- סטטיסטיקה ולוח מובילים (פתוח לכל שגריר, לא רק למנהל — כדי לעודד ולהראות התקדמות) ---
+router.get('/stats/ambassadors', requireAuth, ah(async (req, res) => {
+  const { rows: ambs } = await pool.query('SELECT id, name FROM ambassadors ORDER BY name');
+  const { rows: statusCounts } = await pool.query(`
+    SELECT ambassador_id, status, COUNT(*)::int AS cnt
+    FROM contacts
+    WHERE ambassador_id IS NOT NULL
+      AND (self_of_ambassador_id IS NULL OR self_of_ambassador_id <> ambassador_id)
+    GROUP BY ambassador_id, status
+  `);
+  const { rows: updateCounts } = await pool.query(`
+    SELECT changed_by AS ambassador_id, COUNT(*)::int AS cnt
+    FROM status_history
+    WHERE changed_by IS NOT NULL
+    GROUP BY changed_by
+  `);
+  const byAmb = new Map(ambs.map(a => [a.id, { id: a.id, name: a.name, total: 0, byStatus: {}, updatesCount: 0 }]));
+  for (const row of statusCounts) {
+    const entry = byAmb.get(row.ambassador_id);
+    if (!entry) continue;
+    const key = row.status || 'טרם נקבע סטטוס';
+    entry.byStatus[key] = (entry.byStatus[key] || 0) + row.cnt;
+    entry.total += row.cnt;
+  }
+  for (const row of updateCounts) {
+    const entry = byAmb.get(row.ambassador_id);
+    if (entry) entry.updatesCount = row.cnt;
+  }
+  res.json(Array.from(byAmb.values()));
+}));
+
+router.get('/stats/timeline', requireAuth, ah(async (req, res) => {
+  const { rows } = await pool.query(`
+    SELECT date_trunc('day', first_time) AS day, COUNT(*)::int AS cnt
+    FROM (
+      SELECT contact_id, MIN(changed_at) AS first_time
+      FROM status_history
+      WHERE status = 'מגיע לאירוע'
+      GROUP BY contact_id
+    ) t
+    GROUP BY day
+    ORDER BY day
+  `);
+  let cumulative = 0;
+  const points = rows.map(r => {
+    cumulative += r.cnt;
+    return { day: r.day, count: r.cnt, cumulative };
+  });
+  res.json(points);
 }));
 
 module.exports = router;

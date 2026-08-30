@@ -132,6 +132,14 @@
   .import-result.bad{background:#fef2f2;color:var(--danger)}
   .hint{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.6}
   .spinner{text-align:center;padding:30px;color:var(--muted);font-size:13px}
+
+  /* ---- stats / charts ---- */
+  .barchart{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+  .bar-row{display:flex;align-items:center;gap:8px}
+  .bar-label{width:88px;flex-shrink:0;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar-track{flex:1;height:14px;background:#eef1f5;border-radius:8px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:8px}
+  .bar-value{width:26px;flex-shrink:0;text-align:left;font-size:12px;font-weight:700;color:var(--navy)}
 </style>
 </head>
 <body>
@@ -186,10 +194,18 @@
     if (amb) localStorage.setItem('gius_ambassador_id', String(amb.id)); else localStorage.removeItem('gius_ambassador_id');
   }
 
+  function fmtHebrew(d){
+    try {
+      return new Intl.DateTimeFormat('he-u-ca-hebrew', {day:'numeric', month:'long', year:'numeric'}).format(d);
+    } catch(e){ return ''; }
+  }
+
   function fmtDate(iso){
     if (!iso) return '';
     var d = new Date(iso);
-    return d.toLocaleDateString('he-IL') + ' ' + d.toLocaleTimeString('he-IL', {hour:'2-digit',minute:'2-digit'});
+    var heb = fmtHebrew(d);
+    var time = d.toLocaleTimeString('he-IL', {hour:'2-digit',minute:'2-digit'});
+    return (heb ? heb + ' · ' : '') + d.toLocaleDateString('he-IL') + ' · ' + time;
   }
 
   // ===================== BOOT =====================
@@ -244,8 +260,17 @@
       Array.prototype.forEach.call(list.querySelectorAll('[data-pick]'), function(btn){
         btn.onclick = function(){
           var amb = ambs.find(function(a){ return String(a.id) === btn.getAttribute('data-pick'); });
-          setIdentity(amb);
-          loadShared().then(renderApp);
+          if (!amb.isAdmin){
+            setIdentity(amb);
+            loadShared().then(renderApp);
+            return;
+          }
+          var pin = window.prompt('גישת מנהל — הזינו קוד גישה:');
+          if (pin === null) return;
+          api('/ambassadors/' + amb.id + '/verify-pin', {method:'POST', body: JSON.stringify({pin:pin})}).then(function(){
+            setIdentity(amb);
+            loadShared().then(renderApp);
+          }).catch(function(e){ alert(e.message); });
         };
       });
     }
@@ -266,13 +291,14 @@
       {id:'unassigned', ic:'🕊️', label:'פתוחים'},
       {id:'all', ic:'📚', label:'הכל'},
       {id:'candidates', ic:'🌟', label:'מועמדים'},
+      {id:'stats', ic:'📊', label:'סטטיסטיקה'},
       {id:'add', ic:'➕', label:'הוספה'}
     ];
     if (state.me.isAdmin) tabs.push({id:'admin', ic:'⚙️', label:'ניהול'});
 
     app.innerHTML =
       '<div class="topbar">' +
-        '<div><h1>ערב שותפות — חב"ד עפולה</h1><div class="sub">שלום, ' + esc(state.me.name) + (state.me.isAdmin ? ' <span class="badge">מנהל</span>' : '') + '</div></div>' +
+        '<div><h1>ערב שותפות — חב"ד עפולה</h1><div class="sub">שלום, ' + esc(state.me.name) + (state.me.isAdmin ? ' <span class="badge">מנהל</span>' : '') + ' · ' + esc(fmtHebrew(new Date())) + '</div></div>' +
         '<div class="me"><button id="switch-btn">🔄 החלף זהות</button></div>' +
       '</div>' +
       '<div class="content" id="content"></div>' +
@@ -296,6 +322,7 @@
     else if (state.tab === 'unassigned') renderContactList(content, {scope:'unassigned', title:'לא משויכים', emptyMsg:'כל הכבוד — אין כרגע אנשים שלא משויכים לשגריר.'});
     else if (state.tab === 'all') renderContactList(content, {scope:'all', title:'כל הרשימה', emptyMsg:'הרשימה ריקה.'});
     else if (state.tab === 'candidates') renderContactList(content, {scope:'candidates', title:'מועמדים לשגרירות', emptyMsg:'עדיין לא סומנו מועמדים לשגרירות. אפשר לסמן מתוך הכרטיס של כל איש קשר.'});
+    else if (state.tab === 'stats') renderStats(content);
     else if (state.tab === 'add') renderAdd(content);
     else if (state.tab === 'admin') renderAdmin(content);
   }
@@ -309,7 +336,8 @@
     ]).then(function(res){
       var contacts = res[0];
       var assignAmbs = res[1];
-      var filters = {q:'', cat:'', status:'', uncategorized:false, sort:'newest'};
+      var filters = {q:'', cat:'', status:'', uncategorized:false, sort:'name'};
+      var selected = {};
 
       function getFiltered(){
         var list = contacts.filter(function(c){
@@ -337,8 +365,8 @@
         '<div class="toolbar">' +
           '<input id="f-q" placeholder="חיפוש שם / טלפון">' +
           '<select id="f-sort">' +
-            '<option value="newest">מיון: החדשים ביותר</option>' +
             '<option value="name">מיון: לפי שם (א-ת)</option>' +
+            '<option value="newest">מיון: החדשים ביותר</option>' +
             '<option value="status">מיון: לפי סטטוס</option>' +
           '</select>' +
         '</div>' +
@@ -352,23 +380,74 @@
         '</div>' +
         '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);margin-bottom:12px">' +
           '<input type="checkbox" id="f-uncat"> להציג רק אנשי קשר ללא סיווג</label>' +
+        '<div id="bulk-bar" class="toolbar" style="display:none;align-items:center;background:#eef1f5;border-radius:10px;padding:8px 10px">' +
+          '<span id="bulk-count" style="font-weight:700;font-size:12.5px;flex:0"></span>' +
+          '<button class="btn btn-outline btn-sm" id="bulk-cat" style="flex:0">🏷️ סיווג נבחרים</button>' +
+          '<button class="btn btn-danger btn-sm" id="bulk-del" style="flex:0">🗑️ מחיקת נבחרים</button>' +
+          '<button class="btn btn-outline btn-sm" id="bulk-clear" style="flex:0">ביטול</button>' +
+        '</div>' +
         '<div id="list-body"></div>';
+
+      function updateBulkBar(){
+        var bar = content.querySelector('#bulk-bar');
+        var count = Object.keys(selected).length;
+        bar.style.display = count ? 'flex' : 'none';
+        if (count) content.querySelector('#bulk-count').textContent = count + ' נבחרו';
+      }
+
+      content.querySelector('#bulk-cat').onclick = function(){
+        var ids = Object.keys(selected);
+        if (!ids.length) return;
+        var v = window.prompt('אילו סיווגים להוסיף ל-' + ids.length + ' הנבחרים? (אפשר כמה, מופרד בפסיק)');
+        if (!v || !v.trim()) return;
+        api('/contacts/bulk-categories', {method:'POST', body: JSON.stringify({ids: ids.map(Number), categories: v})}).then(function(updated){
+          updated.forEach(function(u){
+            var idx = contacts.findIndex(function(c){ return c.id === u.id; });
+            if (idx > -1) contacts[idx] = u;
+          });
+          loadShared();
+          draw();
+        }).catch(function(e){ alert(e.message); });
+      };
+      content.querySelector('#bulk-del').onclick = function(){
+        var ids = Object.keys(selected);
+        if (!ids.length) return;
+        if (!confirm('למחוק ' + ids.length + ' אנשי קשר נבחרים? הפעולה בלתי הפיכה.')) return;
+        api('/contacts/bulk-delete', {method:'POST', body: JSON.stringify({ids: ids.map(Number)})}).then(function(){
+          contacts = contacts.filter(function(c){ return !selected[c.id]; });
+          selected = {};
+          draw();
+        }).catch(function(e){ alert(e.message); });
+      };
+      content.querySelector('#bulk-clear').onclick = function(){
+        selected = {};
+        draw();
+      };
 
       function draw(){
         var filtered = getFiltered();
         content.querySelector('#count-pill').textContent = filtered.length === contacts.length ? contacts.length : (filtered.length + '/' + contacts.length);
+        updateBulkBar();
         var body = content.querySelector('#list-body');
         if (!filtered.length){
           body.innerHTML = '<div class="empty"><span class="emoji">🍃</span>' + esc(opts.emptyMsg || 'לא נמצאו תוצאות.') + '</div>';
           return;
         }
-        body.innerHTML = filtered.map(function(c){ return renderCard(c, opts, assignAmbs); }).join('');
+        body.innerHTML = filtered.map(function(c){ return renderCard(c, opts, assignAmbs, selected); }).join('');
         wireCardActions(body);
       }
 
       function wireCardActions(body){
         Array.prototype.forEach.call(body.querySelectorAll('[data-open]'), function(el){
           el.onclick = function(){ openContact(el.getAttribute('data-open')); };
+        });
+        Array.prototype.forEach.call(body.querySelectorAll('[data-select]'), function(cb){
+          cb.onclick = function(ev){ ev.stopPropagation(); };
+          cb.onchange = function(){
+            var id = cb.getAttribute('data-select');
+            if (cb.checked) selected[id] = true; else delete selected[id];
+            updateBulkBar();
+          };
         });
         Array.prototype.forEach.call(body.querySelectorAll('[data-del]'), function(el){
           el.onclick = function(ev){
@@ -449,13 +528,14 @@
     return c.categories.map(function(cat){ return '<span class="badge-cat">' + esc(cat.name) + '</span>'; }).join('');
   }
 
-  function renderCard(c, opts, assignAmbs){
+  function renderCard(c, opts, assignAmbs, selected){
     var statusBadge = c.status
       ? '<span class="badge-status" style="background:' + (STATUS_COLORS[c.status] || '#888') + '">' + esc(c.status) + '</span>'
       : '<span class="badge-cat" style="color:#b45309;background:#fff7e6">טרם נקבע סטטוס</span>';
     var ambBadge = (opts.scope === 'all' || opts.scope === 'candidates') && c.ambassador
       ? '<span class="badge-amb">שגריר: ' + esc(c.ambassador.name) + '</span>' : '';
     var candidateBadge = c.isAmbassadorCandidate ? '<span class="badge-amb">🌟 מועמד/ת לשגרירות</span>' : '';
+    var selfBadge = c.selfOfAmbassador ? '<span class="badge-amb">👤 זה ' + esc(c.selfOfAmbassador.name) + '</span>' : '';
 
     var actionsHtml = '';
     if (opts.scope === 'unassigned'){
@@ -476,10 +556,14 @@
     }
 
     return '<div class="card" data-open="' + c.id + '" style="cursor:pointer">' +
-      '<div class="card-top"><div><div class="card-name">' + esc(c.name) + '</div>' +
-      '<div class="card-meta">' + (c.phone ? '<a href="tel:' + esc(c.phone) + '" onclick="event.stopPropagation()">📞 ' + esc(c.phone) + '</a>' : '') + '</div>' +
-      '</div><button class="link-btn danger" data-del="' + c.id + '" title="מחיקה">🗑️</button></div>' +
-      '<div class="badges">' + categoriesBadges(c) + statusBadge + ambBadge + candidateBadge + '</div>' +
+      '<div class="card-top">' +
+      '<div style="display:flex;align-items:flex-start;gap:8px;flex:1;min-width:0">' +
+        '<input type="checkbox" data-select="' + c.id + '" ' + (selected && selected[c.id] ? 'checked' : '') + ' style="margin-top:4px;flex-shrink:0">' +
+        '<div><div class="card-name">' + esc(c.name) + '</div>' +
+        '<div class="card-meta">' + (c.phone ? '<a href="tel:' + esc(c.phone) + '" onclick="event.stopPropagation()">📞 ' + esc(c.phone) + '</a>' : '') + '</div></div>' +
+      '</div>' +
+      '<button class="link-btn danger" data-del="' + c.id + '" title="מחיקה">🗑️</button></div>' +
+      '<div class="badges">' + categoriesBadges(c) + statusBadge + ambBadge + candidateBadge + selfBadge + '</div>' +
       actionsHtml +
     '</div>';
   }
@@ -525,6 +609,13 @@
       '</div>';
   }
 
+  function renderSelfSection(contact){
+    var self = contact.selfOfAmbassador;
+    if (self && self.id === state.me.id) return '<button class="btn btn-outline btn-sm" id="self-unset">❌ זה לא אני</button>';
+    if (self) return '<span class="hint">מסומן כ"זה אני" על ידי ' + esc(self.name) + '</span>';
+    return '<button class="btn btn-outline btn-sm" id="self-set">👤 זה אני (השגריר)</button>';
+  }
+
   function drawSheet(overlay, contact, history){
     var sheet = overlay.querySelector('.sheet');
     var catList = state.categories.map(function(c){ return '<option value="' + esc(c.name) + '">'; }).join('');
@@ -560,6 +651,7 @@
       }).join('') + '</div>' +
 
       (contact.ambassador ? '<div class="hint">שגריר אחראי: ' + esc(contact.ambassador.name) + '</div>' : '<div class="hint">לא משויך לשגריר</div>') +
+      '<div style="margin-top:8px">' + renderSelfSection(contact) + '</div>' +
 
       '<hr class="divider">' +
       '<div class="sec-title" style="margin-bottom:8px">מועמד/ת לשגרירות?</div>' +
@@ -632,6 +724,15 @@
     if ((el = sheet.querySelector('#cand-release'))) el.onclick = function(){ candidateCall({candidate:true, owner:'open'}); };
     if ((el = sheet.querySelector('#cand-unmark'))) el.onclick = function(){ candidateCall({candidate:false}); };
 
+    if ((el = sheet.querySelector('#self-set'))) el.onclick = function(){
+      api('/contacts/' + contact.id + '/self', {method:'POST', body: JSON.stringify({self:true})})
+        .then(function(){ overlay.remove(); renderApp(); }).catch(function(e){ alert(e.message); });
+    };
+    if ((el = sheet.querySelector('#self-unset'))) el.onclick = function(){
+      api('/contacts/' + contact.id + '/self', {method:'POST', body: JSON.stringify({self:false})})
+        .then(function(){ overlay.remove(); renderApp(); }).catch(function(e){ alert(e.message); });
+    };
+
     sheet.querySelector('#sh-delete').onclick = function(){
       if (!confirm('למחוק את "' + contact.name + '" מהרשימה? הפעולה בלתי הפיכה (כולל היסטוריית הסטטוסים).')) return;
       api('/contacts/' + contact.id, {method:'DELETE'}).then(function(){
@@ -653,6 +754,126 @@
         '<div class="tl-meta">' + fmtDate(h.changed_at) + (h.changed_by ? ' · ' + esc(h.changed_by) : '') + '</div></div>' +
       '</div>';
     }).join('') + '</div>';
+  }
+
+  // ===================== סטטיסטיקה ולוח מובילים =====================
+  var MOTIVATIONAL_QUOTES = [
+    'כל שיחה נוספת שאתם עושים היא עוד לבנה בבניין המוסדות של חב"ד עפולה — תודה על המסירות!',
+    'אין דבר העומד בפני הרצון — וההתקדמות שלכם היא הוכחה חיה לכך. ממשיכים קדימה!',
+    'הרבי תמיד אמר שכל יהודי הוא שליח — ואתם ממש מגשימים את זה בכל שיחה.',
+    'הערב הזה יקרה בזכותכם. כל "כן" שאתם מקבלים הוא ניצחון בשביל כל הקהילה.',
+    'מעשה קטן שלכם היום — שיחה אחת, טלפון אחד — יכול להביא שינוי גדול מחר.',
+    'אתם לא רק מגייסים לאירוע — אתם בונים קהילה. יישר כוח!',
+    'כל איש קשר שהתקדם בזכותכם הוא סימן שהמאמץ שלכם עובד. תמשיכו כך!',
+    'בזכות שגרירים כמוכם, ערב השותפות הזה קורם עור וגידים מהר מהצפוי!',
+    'גם שיחה שלא הצליחה היא חלק מהדרך — ממשיכים לחייג, לדבר, ולהאמין.',
+    'המוסדות של חב"ד עפולה גדלים בזכות אנשים כמוכם שמוכנים להשקיע מזמנם. תודה ענקית!',
+    'לא משנה כמה קשה השיחה — כל ניסיון הוא זריעה, והקציר יגיע.',
+    'אתם השליחים של הרבי בשטח — וכל שיחה שלכם ממשיכה את השליחות שלו.'
+  ];
+
+  function pickRandom(arr, n){
+    var copy = arr.slice();
+    var out = [];
+    while (copy.length && out.length < n){
+      out.push(copy.splice(Math.floor(Math.random() * copy.length), 1)[0]);
+    }
+    return out;
+  }
+
+  function renderBarChart(rows, color){
+    if (!rows.length) return '<div class="hint">אין עדיין נתונים להצגה.</div>';
+    var max = Math.max.apply(null, rows.map(function(r){ return r.value; })) || 1;
+    return '<div class="barchart">' + rows.map(function(r){
+      var pct = Math.max(4, Math.round((r.value / max) * 100));
+      return '<div class="bar-row">' +
+        '<div class="bar-label">' + esc(r.label) + '</div>' +
+        '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
+        '<div class="bar-value">' + r.value + '</div>' +
+      '</div>';
+    }).join('') + '</div>';
+  }
+
+  function renderTimelineSvg(points){
+    if (!points.length) return '<div class="hint">עדיין אין אנשים בסטטוס "מגיע לאירוע" — ברגע שיהיו, כאן יופיע קו ההתקדמות.</div>';
+    if (points.length === 1){
+      var onlyDay = new Date(points[0].day);
+      return '<div style="text-align:center;padding:10px 0">' +
+        '<div style="font-size:34px;font-weight:800;color:var(--navy)">' + points[0].cumulative + '</div>' +
+        '<div class="hint">אנשים הגיעו לסטטוס "מגיע לאירוע" עד כה (' + esc(onlyDay.toLocaleDateString('he-IL')) + ') — הגרף יתמלא ככל שיעברו עוד ימים.</div>' +
+      '</div>';
+    }
+    var w = 320, h = 140, pad = 26;
+    var maxY = points[points.length - 1].cumulative || 1;
+    var stepX = points.length > 1 ? (w - pad * 2) / (points.length - 1) : 0;
+    var coords = points.map(function(p, i){
+      var x = pad + i * stepX;
+      var y = h - pad - (p.cumulative / maxY) * (h - pad * 2);
+      return {x:x, y:y, p:p};
+    });
+    var linePath = coords.map(function(c, i){ return (i === 0 ? 'M' : 'L') + c.x.toFixed(1) + ',' + c.y.toFixed(1); }).join(' ');
+    var areaPath = linePath + ' L' + coords[coords.length - 1].x.toFixed(1) + ',' + (h - pad) + ' L' + coords[0].x.toFixed(1) + ',' + (h - pad) + ' Z';
+    var dots = coords.map(function(c){
+      var d = new Date(c.p.day);
+      return '<circle cx="' + c.x.toFixed(1) + '" cy="' + c.y.toFixed(1) + '" r="3.5" fill="#1e293b"><title>' + esc(d.toLocaleDateString('he-IL')) + ': סה"כ ' + c.p.cumulative + '</title></circle>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:auto;display:block" preserveAspectRatio="xMidYMid meet">' +
+      '<path d="' + areaPath + '" fill="rgba(30,41,59,0.12)" stroke="none"></path>' +
+      '<path d="' + linePath + '" fill="none" stroke="#1e293b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>' +
+      dots +
+    '</svg>';
+  }
+
+  function renderStats(content){
+    content.innerHTML = '<div class="spinner">טוען…</div>';
+    Promise.all([api('/stats/ambassadors'), api('/stats/timeline')]).then(function(res){
+      var ambStats = res[0];
+      var timeline = res[1];
+
+      var arriving = ambStats.map(function(a){ return {label:a.name, value:(a.byStatus['מגיע לאירוע'] || 0)}; })
+        .filter(function(r){ return r.value > 0; }).sort(function(a, b){ return b.value - a.value; });
+      var effort = ambStats.map(function(a){ return {label:a.name, value:a.updatesCount}; })
+        .filter(function(r){ return r.value > 0; }).sort(function(a, b){ return b.value - a.value; });
+      var leaderboard = ambStats.slice().sort(function(a, b){
+        return (b.byStatus['מגיע לאירוע'] || 0) - (a.byStatus['מגיע לאירוע'] || 0);
+      });
+
+      var quotes = pickRandom(MOTIVATIONAL_QUOTES, 2);
+      var top = arriving[0];
+
+      content.innerHTML =
+        '<div class="sec-title">סטטיסטיקה ולוח מובילים</div>' +
+
+        '<div class="card" style="background:linear-gradient(135deg,#fff7e6,#fff)">' +
+          (top ? '<div style="font-weight:800;color:var(--navy);margin-bottom:6px">🎉 ' + esc(top.label) + ' מוביל/ה עם ' + top.value + ' אנשים שהגיעו לסטטוס "מגיע לאירוע"!</div>' : '') +
+          quotes.map(function(q){ return '<div class="hint" style="font-size:12.5px;margin-bottom:4px">💛 ' + esc(q) + '</div>'; }).join('') +
+        '</div>' +
+
+        '<div class="sec-title" style="margin-top:18px">מי הביא הכי הרבה אנשים ל"מגיע לאירוע"</div>' +
+        renderBarChart(arriving, 'var(--gold)') +
+
+        '<div class="sec-title" style="margin-top:18px">מי הכי משקיע (מספר עדכוני סטטוס)</div>' +
+        renderBarChart(effort, 'var(--navy)') +
+
+        '<div class="sec-title" style="margin-top:18px">קצב ההתקדמות של כולם (הגעות מצטברות לאורך זמן)</div>' +
+        '<div class="card">' + renderTimelineSvg(timeline) + '</div>' +
+
+        '<div class="sec-title" style="margin-top:18px">לוח שגרירים מלא</div>' +
+        (leaderboard.length ? leaderboard.map(function(a){
+          var badges = state.statuses.map(function(s){
+            var cnt = a.byStatus[s] || 0;
+            return cnt ? '<span class="badge-status" style="background:' + (STATUS_COLORS[s] || '#888') + '">' + esc(s) + ': ' + cnt + '</span>' : '';
+          }).join('');
+          var noneCnt = a.byStatus['טרם נקבע סטטוס'] || 0;
+          return '<div class="card">' +
+            '<div class="card-name">' + esc(a.name) + '</div>' +
+            '<div class="hint">סה"כ אחראי/ת על ' + a.total + ' אנשים · ' + a.updatesCount + ' עדכוני סטטוס</div>' +
+            '<div class="badges">' + badges + (noneCnt ? '<span class="badge-cat">טרם נקבע סטטוס: ' + noneCnt + '</span>' : '') + '</div>' +
+          '</div>';
+        }).join('') : '<div class="empty">אין עדיין שגרירים עם אנשים ברשימה.</div>');
+    }).catch(function(e){
+      content.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+    });
   }
 
   // ===================== ADD CONTACT =====================
@@ -740,7 +961,11 @@
         ambs.map(function(a){
           return '<tr><td>' + esc(a.name) + '</td><td>' + esc(a.phone || '—') + '</td><td>' + a.contactCount + '</td>' +
             '<td>' + (a.isAdmin ? '✔️' : '') + '</td>' +
-            '<td>' + (a.id !== state.me.id ? '<button class="link-btn danger" data-del="' + a.id + '">מחיקה</button>' : '') + '</td></tr>';
+            '<td>' +
+              '<button class="link-btn" data-rename="' + a.id + '">✏️ שם</button> ' +
+              (a.isAdmin ? '<button class="link-btn" data-repin="' + a.id + '">🔑 קוד</button> ' : '') +
+              (a.id !== state.me.id ? '<button class="link-btn danger" data-del="' + a.id + '">מחיקה</button>' : '') +
+            '</td></tr>';
         }).join('') + '</tbody></table>' +
         '<hr class="divider">' +
         '<div class="sec-title">הוספת שגריר חדש</div>' +
@@ -748,9 +973,14 @@
         '<div class="field"><label>טלפון</label><input id="na-phone" type="tel"></div>' +
         '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:12px">' +
           '<input type="checkbox" id="na-admin"> הרשאת מנהל</label>' +
+        '<div class="field" id="na-pin-wrap" style="display:none"><label>קוד גישה (למנהל בלבד) *</label><input id="na-pin" type="tel" inputmode="numeric"></div>' +
         '<div id="na-msg"></div>' +
         '<button class="btn btn-gold" id="na-submit">➕ הוספת שגריר</button>' +
-        '<div class="hint">אין קוד כניסה — מוסיפים שם ומיד אפשר לבחור אותו ממסך "מי אתה?".</div>';
+        '<div class="hint">לשגריר רגיל אין קוד כניסה בכלל — מוסיפים שם ומיד אפשר לבחור אותו ממסך "מי אתה?". רק למנהל יש קוד גישה.</div>';
+
+      body.querySelector('#na-admin').onchange = function(e){
+        body.querySelector('#na-pin-wrap').style.display = e.target.checked ? 'block' : 'none';
+      };
 
       Array.prototype.forEach.call(body.querySelectorAll('[data-del]'), function(btn){
         btn.onclick = function(){
@@ -759,14 +989,36 @@
             .then(function(){ renderAdminAmbassadors(body); }).catch(function(e){ alert(e.message); });
         };
       });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-rename]'), function(btn){
+        btn.onclick = function(){
+          var id = btn.getAttribute('data-rename');
+          var current = ambs.find(function(a){ return String(a.id) === id; });
+          var name = window.prompt('שם חדש:', current ? current.name : '');
+          if (!name || !name.trim()) return;
+          api('/ambassadors/' + id, {method:'PATCH', body: JSON.stringify({name: name.trim()})})
+            .then(function(){ renderAdminAmbassadors(body); }).catch(function(e){ alert(e.message); });
+        };
+      });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-repin]'), function(btn){
+        btn.onclick = function(){
+          var pin = window.prompt('קוד גישה חדש למנהל:');
+          if (!pin) return;
+          api('/ambassadors/' + btn.getAttribute('data-repin'), {method:'PATCH', body: JSON.stringify({pin:pin})})
+            .then(function(){ alert('הקוד עודכן.'); }).catch(function(e){ alert(e.message); });
+        };
+      });
       body.querySelector('#na-submit').onclick = function(){
         var name = body.querySelector('#na-name').value.trim();
         var msg = body.querySelector('#na-msg');
+        var isAdmin = body.querySelector('#na-admin').checked;
+        var pin = body.querySelector('#na-pin').value.trim();
         if (!name){ msg.innerHTML = '<div class="err">יש להזין שם</div>'; return; }
+        if (isAdmin && !pin){ msg.innerHTML = '<div class="err">יש להגדיר קוד גישה למנהל</div>'; return; }
         api('/ambassadors', {method:'POST', body: JSON.stringify({
           name: name,
           phone: body.querySelector('#na-phone').value.trim(),
-          isAdmin: body.querySelector('#na-admin').checked
+          isAdmin: isAdmin,
+          pin: pin
         })}).then(function(){
           renderAdminAmbassadors(body);
         }).catch(function(e){ msg.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
