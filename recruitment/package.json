@@ -1,0 +1,17 @@
+{
+  "name": "chabad-afula-recruitment",
+  "version": "1.0.0",
+  "description": "מערכת גיוס שגרירים ואנשי קשר לערב שותפות — בית ספר חב\"ד עפולה",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "migrate": "node -e \"require('./server/db').migrate().then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1)})\""
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.22.2",
+    "pg": "^8.22.0"
+  }
+}

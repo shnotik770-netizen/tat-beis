@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>גיוס שגרירים — ערב שותפות | חב"ד עפולה</title>
+<style>
+  :root{
+    --navy:#1e293b; --navy-2:#0f172a; --gold:#c8952e; --gold-light:#f2c869;
+    --bg:#f4f5f7; --card:#ffffff; --border:#e3e6ea; --text:#1c2230; --muted:#6b7280;
+    --danger:#dc2626; --success:#16a34a; --info:#2563eb; --warn:#d97706;
+    --radius:14px; --shadow:0 1px 3px rgba(15,23,42,.08), 0 1px 2px rgba(15,23,42,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
+    -webkit-tap-highlight-color:transparent;}
+  body{padding-bottom:76px}
+  input,select,textarea,button{font-family:inherit;font-size:16px}
+  button{cursor:pointer}
+  #app{max-width:640px;margin:0 auto;min-height:100vh;background:var(--bg);position:relative}
+
+  /* ---- header ---- */
+  .topbar{position:sticky;top:0;z-index:20;background:linear-gradient(135deg,var(--navy),var(--navy-2));
+    color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;
+    box-shadow:var(--shadow)}
+  .topbar h1{font-size:16px;margin:0;font-weight:700;line-height:1.3}
+  .topbar .sub{font-size:12px;opacity:.75;margin-top:2px}
+  .topbar .me{display:flex;align-items:center;gap:8px}
+  .topbar .me button{background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:20px;
+    padding:6px 12px;font-size:13px}
+  .topbar .badge{background:var(--gold);color:#3a2a04;font-size:11px;font-weight:700;border-radius:20px;
+    padding:2px 8px}
+
+  /* ---- bottom nav ---- */
+  .tabbar{position:fixed;bottom:0;right:50%;transform:translateX(50%);width:100%;max-width:640px;
+    display:flex;background:#fff;border-top:1px solid var(--border);z-index:30;
+    box-shadow:0 -2px 8px rgba(15,23,42,.06)}
+  .tabbar button{flex:1;background:none;border:none;padding:10px 4px 8px;display:flex;flex-direction:column;
+    align-items:center;gap:2px;color:var(--muted);font-size:11px;font-weight:600}
+  .tabbar button .ic{font-size:20px}
+  .tabbar button.active{color:var(--navy)}
+  .tabbar button.active .ic{filter:drop-shadow(0 0 0 var(--gold))}
+
+  .content{padding:14px}
+
+  /* ---- login ---- */
+  .login-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+  .login-card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:28px 24px;
+    width:100%;max-width:360px;text-align:center}
+  .login-card .emoji{font-size:40px;margin-bottom:6px}
+  .login-card h2{margin:0 0 4px;font-size:19px;color:var(--navy)}
+  .login-card p{margin:0 0 20px;color:var(--muted);font-size:13px}
+  .field{text-align:right;margin-bottom:14px}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600}
+  .field input,.field select,.field textarea{width:100%;padding:11px 12px;border:1.5px solid var(--border);
+    border-radius:10px;background:#fbfbfc;color:var(--text)}
+  .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--navy)}
+  .field textarea{resize:vertical;min-height:70px;font-family:inherit}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:10px;
+    padding:11px 18px;font-weight:700;font-size:14px}
+  .btn-primary{background:var(--navy);color:#fff;width:100%}
+  .btn-gold{background:var(--gold);color:#3a2a04}
+  .btn-outline{background:#fff;border:1.5px solid var(--border);color:var(--text)}
+  .btn-danger{background:#fff;border:1.5px solid var(--danger);color:var(--danger)}
+  .btn-sm{padding:7px 12px;font-size:12.5px;border-radius:8px}
+  .btn:disabled{opacity:.55}
+  .err{background:#fef2f2;color:var(--danger);border:1px solid #fecaca;border-radius:8px;padding:9px 12px;
+    font-size:13px;margin-bottom:12px;text-align:right}
+  .ok-msg{background:#f0fdf4;color:var(--success);border:1px solid #bbf7d0;border-radius:8px;padding:9px 12px;
+    font-size:13px;margin-bottom:12px;text-align:right}
+
+  /* ---- section headers / toolbar ---- */
+  .sec-title{font-size:15px;font-weight:800;color:var(--navy);margin:2px 0 12px;display:flex;
+    align-items:center;justify-content:space-between}
+  .count-pill{background:#eef1f5;color:var(--muted);font-size:12px;border-radius:20px;padding:2px 10px;font-weight:600}
+  .toolbar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  .toolbar select,.toolbar input{flex:1;min-width:110px;padding:9px 10px;border:1.5px solid var(--border);
+    border-radius:9px;background:#fff;font-size:13px}
+
+  /* ---- contact card ---- */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:13px 14px;
+    margin-bottom:10px;box-shadow:var(--shadow)}
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .card-name{font-weight:800;font-size:15px;color:var(--navy)}
+  .card-meta{font-size:12.5px;color:var(--muted);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap}
+  .card-meta a{color:var(--info);text-decoration:none}
+  .badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .badge-cat{background:#eef1f5;color:#3a4356;font-size:11.5px;border-radius:20px;padding:3px 10px;font-weight:600}
+  .badge-status{font-size:11.5px;border-radius:20px;padding:3px 10px;font-weight:700;color:#fff}
+  .badge-amb{background:#fff7e6;color:#8a5a00;font-size:11.5px;border-radius:20px;padding:3px 10px;font-weight:600}
+  .card-actions{display:flex;gap:8px;margin-top:10px}
+  .empty{text-align:center;color:var(--muted);padding:36px 12px;font-size:13.5px}
+  .empty .emoji{font-size:32px;display:block;margin-bottom:8px}
+
+  /* ---- modal ---- */
+  .overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:50;display:flex;
+    align-items:flex-end;justify-content:center}
+  .sheet{background:#fff;width:100%;max-width:640px;border-radius:18px 18px 0 0;max-height:92vh;
+    overflow-y:auto;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
+  .sheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .sheet-head h3{margin:0;font-size:16px;color:var(--navy)}
+  .close-x{background:#f1f2f5;border:none;border-radius:50%;width:30px;height:30px;font-size:15px;color:#555}
+  .status-grid{display:flex;flex-direction:column;gap:8px;margin:8px 0 16px}
+  .status-opt{border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;text-align:right;
+    background:#fff;font-weight:600;font-size:13.5px;display:flex;justify-content:space-between;align-items:center}
+  .status-opt.sel{border-color:var(--navy);background:#f5f6fb}
+  .status-opt .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+  .divider{border:none;border-top:1px solid var(--border);margin:16px 0}
+  .timeline{display:flex;flex-direction:column;gap:0;margin-top:6px}
+  .tl-item{display:flex;gap:10px;padding:6px 0;position:relative}
+  .tl-item .tl-dot{width:9px;height:9px;border-radius:50%;margin-top:5px;flex-shrink:0}
+  .tl-item .tl-line{position:absolute;right:4px;top:16px;bottom:-6px;width:2px;background:var(--border)}
+  .tl-body{font-size:13px}
+  .tl-status{font-weight:700}
+  .tl-meta{color:var(--muted);font-size:11.5px;margin-top:1px}
+  .form-row2{display:flex;gap:10px}
+  .form-row2 .field{flex:1}
+
+  /* ---- admin ---- */
+  .admin-tabs{display:flex;gap:6px;margin-bottom:14px;background:#eef1f5;border-radius:10px;padding:3px}
+  .admin-tabs button{flex:1;background:none;border:none;border-radius:8px;padding:8px 4px;font-size:12.5px;
+    font-weight:700;color:var(--muted)}
+  .admin-tabs button.active{background:#fff;color:var(--navy);box-shadow:var(--shadow)}
+  table.simple{width:100%;border-collapse:collapse;font-size:13px}
+  table.simple th{text-align:right;color:var(--muted);font-size:11.5px;padding:4px 6px;border-bottom:1px solid var(--border)}
+  table.simple td{padding:8px 6px;border-bottom:1px solid var(--border);vertical-align:middle}
+  .link-btn{background:none;border:none;color:var(--info);font-weight:700;font-size:12.5px;padding:2px}
+  .link-btn.danger{color:var(--danger)}
+  .import-result{font-size:12.5px;border-radius:8px;padding:6px 9px;margin-bottom:4px}
+  .import-result.ok{background:#f0fdf4;color:var(--success)}
+  .import-result.bad{background:#fef2f2;color:var(--danger)}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.6}
+  .spinner{text-align:center;padding:30px;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+(function(){
+  'use strict';
+
+  var API = '/api';
+  var STATUS_COLORS = {
+    'שיחה ראשונית': '#64748b',
+    'בודק': '#d97706',
+    'מגיע לאירוע': '#16a34a',
+    'לא יכול להגיע אבל רוצה לתרום': '#2563eb',
+    'לא יכול להגיע לאירוע': '#dc2626'
+  };
+
+  var state = {
+    token: localStorage.getItem('gius_token') || null,
+    me: null,
+    tab: 'mine',
+    adminTab: 'ambassadors',
+    categories: [],
+    statuses: [],
+    ambassadors: [],
+    loginError: '',
+    busy: false
+  };
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function api(path, opts){
+    opts = opts || {};
+    var headers = Object.assign({'Content-Type':'application/json'}, opts.headers || {});
+    if (state.token) headers['x-auth-token'] = state.token;
+    return fetch(API + path, Object.assign({}, opts, {headers: headers}))
+      .then(function(res){
+        return res.text().then(function(text){
+          var data = null;
+          try { data = text ? JSON.parse(text) : null; } catch(e){}
+          if (!res.ok) throw new Error((data && data.error) || 'שגיאת שרת');
+          return data;
+        });
+      });
+  }
+
+  function setToken(t){
+    state.token = t;
+    if (t) localStorage.setItem('gius_token', t); else localStorage.removeItem('gius_token');
+  }
+
+  function fmtDate(iso){
+    if (!iso) return '';
+    var d = new Date(iso);
+    return d.toLocaleDateString('he-IL') + ' ' + d.toLocaleTimeString('he-IL', {hour:'2-digit',minute:'2-digit'});
+  }
+
+  // ===================== BOOT =====================
+  function boot(){
+    if (!state.token) return renderLogin();
+    api('/me').then(function(me){
+      state.me = me;
+      loadShared().then(renderApp);
+    }).catch(function(){
+      setToken(null);
+      renderLogin();
+    });
+  }
+
+  function loadShared(){
+    return Promise.all([
+      api('/categories').then(function(c){ state.categories = c; }).catch(function(){}),
+      api('/statuses').then(function(s){ state.statuses = s; }).catch(function(){})
+    ]);
+  }
+
+  // ===================== LOGIN =====================
+  function renderLogin(){
+    var app = document.getElementById('app');
+    app.innerHTML =
+      '<div class="login-wrap"><div class="login-card">' +
+        '<div class="emoji">🤝</div>' +
+        '<h2>ערב שותפות — בית ספר חב"ד עפולה</h2>' +
+        '<p>התחברות שגרירים למערכת הגיוס</p>' +
+        (state.loginError ? '<div class="err">' + esc(state.loginError) + '</div>' : '') +
+        '<div class="field"><label>שם מלא</label><input id="login-name" placeholder="לדוגמה: ישראל ישראלי" autocomplete="username"></div>' +
+        '<div class="field"><label>קוד כניסה</label><input id="login-pin" type="tel" inputmode="numeric" placeholder="הקוד שקיבלת" autocomplete="current-password"></div>' +
+        '<button class="btn btn-primary" id="login-btn">כניסה</button>' +
+      '</div></div>';
+
+    document.getElementById('login-btn').onclick = doLogin;
+    document.getElementById('login-pin').addEventListener('keydown', function(e){ if (e.key === 'Enter') doLogin(); });
+    document.getElementById('login-name').addEventListener('keydown', function(e){ if (e.key === 'Enter') doLogin(); });
+  }
+
+  function doLogin(){
+    var name = document.getElementById('login-name').value.trim();
+    var pin = document.getElementById('login-pin').value.trim();
+    if (!name || !pin) { state.loginError = 'נא למלא שם וקוד כניסה'; renderLogin(); return; }
+    api('/login', {method:'POST', body: JSON.stringify({name:name, pin:pin})}).then(function(data){
+      setToken(data.token);
+      state.me = data.ambassador;
+      state.loginError = '';
+      loadShared().then(renderApp);
+    }).catch(function(e){
+      state.loginError = e.message;
+      renderLogin();
+    });
+  }
+
+  function doLogout(){
+    api('/logout', {method:'POST'}).catch(function(){}).then(function(){
+      setToken(null);
+      state.me = null;
+      renderLogin();
+    });
+  }
+
+  // ===================== APP SHELL =====================
+  function renderApp(){
+    var app = document.getElementById('app');
+    var tabs = [
+      {id:'mine', ic:'📋', label:'הרשימה שלי'},
+      {id:'unassigned', ic:'🕊️', label:'לא משויכים'},
+      {id:'add', ic:'➕', label:'הוספה'}
+    ];
+    if (state.me.isAdmin) tabs.push({id:'admin', ic:'⚙️', label:'ניהול'});
+
+    app.innerHTML =
+      '<div class="topbar">' +
+        '<div><h1>ערב שותפות — חב"ד עפולה</h1><div class="sub">שלום, ' + esc(state.me.name) + (state.me.isAdmin ? ' <span class="badge">מנהל</span>' : '') + '</div></div>' +
+        '<div class="me"><button id="logout-btn">יציאה</button></div>' +
+      '</div>' +
+      '<div class="content" id="content"></div>' +
+      '<div class="tabbar" id="tabbar"></div>';
+
+    document.getElementById('logout-btn').onclick = doLogout;
+
+    var tabbar = document.getElementById('tabbar');
+    tabbar.innerHTML = tabs.map(function(t){
+      return '<button data-tab="' + t.id + '" class="' + (state.tab === t.id ? 'active' : '') + '">' +
+        '<span class="ic">' + t.ic + '</span><span>' + t.label + '</span></button>';
+    }).join('');
+    Array.prototype.forEach.call(tabbar.querySelectorAll('button'), function(btn){
+      btn.onclick = function(){ state.tab = btn.getAttribute('data-tab'); renderApp(); };
+    });
+
+    var content = document.getElementById('content');
+    content.innerHTML = '<div class="spinner">טוען…</div>';
+
+    if (state.tab === 'mine') renderList(content, 'mine', 'הרשימה שלי');
+    else if (state.tab === 'unassigned') renderList(content, 'unassigned', 'לא משויכים');
+    else if (state.tab === 'add') renderAdd(content);
+    else if (state.tab === 'admin') renderAdmin(content);
+  }
+
+  // ===================== CONTACT LIST (mine / unassigned) =====================
+  function renderList(content, scope, title){
+    api('/contacts?scope=' + scope).then(function(contacts){
+      var filterCat = '', filterStatus = '';
+      function draw(){
+        var filtered = contacts.filter(function(c){
+          if (filterCat && (!c.category || c.category.name !== filterCat)) return false;
+          if (filterStatus && c.status !== filterStatus) return false;
+          return true;
+        });
+        content.innerHTML =
+          '<div class="sec-title">' + title + ' <span class="count-pill">' + contacts.length + '</span></div>' +
+          (scope === 'mine' ? renderToolbar() : '') +
+          '<div id="list-body"></div>';
+
+        if (scope === 'mine'){
+          var catSel = content.querySelector('#f-cat');
+          var stSel = content.querySelector('#f-status');
+          if (catSel) catSel.onchange = function(){ filterCat = catSel.value; draw(); };
+          if (stSel) stSel.onchange = function(){ filterStatus = stSel.value; draw(); };
+          if (catSel) catSel.value = filterCat;
+          if (stSel) stSel.value = filterStatus;
+        }
+
+        var body = content.querySelector('#list-body');
+        if (!filtered.length){
+          body.innerHTML = '<div class="empty"><span class="emoji">🍃</span>' +
+            (scope === 'unassigned' ? 'כל הכבוד — אין כרגע אנשים שלא משויכים לשגריר.' : 'עדיין אין אנשים ברשימה שלך. אפשר להוסיף מהלשונית "הוספה".') +
+            '</div>';
+          return;
+        }
+        body.innerHTML = filtered.map(function(c){ return renderCard(c, scope); }).join('');
+        Array.prototype.forEach.call(body.querySelectorAll('[data-open]'), function(el){
+          el.onclick = function(){ openContact(el.getAttribute('data-open')); };
+        });
+        Array.prototype.forEach.call(body.querySelectorAll('[data-claim]'), function(el){
+          el.onclick = function(ev){
+            ev.stopPropagation();
+            claimContact(el.getAttribute('data-claim'));
+          };
+        });
+      }
+
+      function renderToolbar(){
+        var cats = uniqueCats(contacts);
+        var statuses = state.statuses;
+        return '<div class="toolbar">' +
+          '<select id="f-cat"><option value="">כל הקטגוריות</option>' +
+            cats.map(function(c){ return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') +
+          '</select>' +
+          '<select id="f-status"><option value="">כל הסטטוסים</option>' +
+            statuses.map(function(s){ return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('') +
+          '</select>' +
+        '</div>';
+      }
+
+      draw();
+    }).catch(function(e){
+      content.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+    });
+  }
+
+  function uniqueCats(contacts){
+    var set = {};
+    contacts.forEach(function(c){ if (c.category) set[c.category.name] = true; });
+    return Object.keys(set).sort();
+  }
+
+  function renderCard(c, scope){
+    var statusBadge = c.status
+      ? '<span class="badge-status" style="background:' + (STATUS_COLORS[c.status] || '#888') + '">' + esc(c.status) + '</span>'
+      : '<span class="badge-cat" style="color:#b45309;background:#fff7e6">טרם נקבע סטטוס</span>';
+    return '<div class="card" ' + (scope === 'mine' ? 'data-open="' + c.id + '"' : '') + ' style="cursor:' + (scope === 'mine' ? 'pointer' : 'default') + '">' +
+      '<div class="card-top"><div><div class="card-name">' + esc(c.name) + '</div>' +
+      '<div class="card-meta">' + (c.phone ? '<a href="tel:' + esc(c.phone) + '" onclick="event.stopPropagation()">📞 ' + esc(c.phone) + '</a>' : '') + '</div>' +
+      '</div></div>' +
+      '<div class="badges">' +
+        (c.category ? '<span class="badge-cat">' + esc(c.category.name) + '</span>' : '') +
+        statusBadge +
+        (scope === 'unassigned' ? '' : '') +
+      '</div>' +
+      (scope === 'unassigned'
+        ? '<div class="card-actions"><button class="btn btn-gold btn-sm" data-claim="' + c.id + '">✋ קח לרשימה שלי</button>' +
+          '<button class="btn btn-outline btn-sm" data-open="' + c.id + '">היסטוריה</button></div>'
+        : '') +
+    '</div>';
+  }
+
+  function claimContact(id){
+    api('/contacts/' + id + '/claim', {method:'POST'}).then(function(){
+      renderApp();
+    }).catch(function(e){ alert(e.message); });
+  }
+
+  // ===================== CONTACT DETAIL MODAL =====================
+  function openContact(id){
+    var overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.innerHTML = '<div class="sheet"><div class="spinner">טוען…</div></div>';
+    document.body.appendChild(overlay);
+    overlay.onclick = function(e){ if (e.target === overlay) overlay.remove(); };
+
+    Promise.all([
+      api('/contacts?scope=all').catch(function(){ return null; }),
+      api('/contacts/' + id + '/history')
+    ]).then(function(results){
+      var history = results[1];
+      // מצא את הכרטיס המלא: קודם ב"אני", אחר כך ב"לא משויך", אחר כך אצל מנהל ב"הכל"
+      return findContact(id).then(function(contact){ return {contact: contact, history: history}; });
+    }).then(function(data){
+      drawSheet(overlay, data.contact, data.history);
+    }).catch(function(e){
+      overlay.querySelector('.sheet').innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+    });
+  }
+
+  function findContact(id){
+    var scopes = state.me.isAdmin ? ['all'] : ['mine', 'unassigned'];
+    return scopes.reduce(function(chain, scope){
+      return chain.then(function(found){
+        if (found) return found;
+        return api('/contacts?scope=' + scope).then(function(list){
+          return list.find(function(c){ return String(c.id) === String(id); }) || null;
+        });
+      });
+    }, Promise.resolve(null));
+  }
+
+  function drawSheet(overlay, contact, history){
+    var canEdit = state.me.isAdmin || (contact.ambassador && contact.ambassador.id === state.me.id);
+    var sheet = overlay.querySelector('.sheet');
+    var catList = state.categories.map(function(c){ return '<option value="' + esc(c.name) + '">'; }).join('');
+
+    sheet.innerHTML =
+      '<div class="sheet-head"><h3>' + esc(contact.name) + '</h3><button class="close-x" id="sh-close">✕</button></div>' +
+
+      (canEdit ? (
+        '<div class="field"><label>שם</label><input id="e-name" value="' + esc(contact.name) + '"></div>' +
+        '<div class="form-row2">' +
+          '<div class="field"><label>טלפון</label><input id="e-phone" type="tel" value="' + esc(contact.phone || '') + '"></div>' +
+          '<div class="field"><label>קטגוריה</label><input id="e-cat" list="cat-dl" value="' + esc(contact.category ? contact.category.name : '') + '"></div>' +
+        '</div>' +
+        '<datalist id="cat-dl">' + catList + '</datalist>' +
+        '<div class="field"><label>הערות</label><textarea id="e-notes">' + esc(contact.notes || '') + '</textarea></div>' +
+        '<button class="btn btn-primary" id="sh-save">💾 שמירת פרטים</button>' +
+        '<hr class="divider">' +
+        '<div class="sec-title" style="margin-bottom:8px">עדכון סטטוס</div>' +
+        '<div class="status-grid">' + state.statuses.map(function(s){
+          var sel = contact.status === s;
+          return '<button class="status-opt ' + (sel ? 'sel' : '') + '" data-status="' + esc(s) + '">' +
+            '<span>' + esc(s) + '</span><span class="dot" style="background:' + STATUS_COLORS[s] + '"></span></button>';
+        }).join('') + '</div>'
+      ) : (
+        '<div class="badges" style="margin-bottom:10px">' +
+          (contact.category ? '<span class="badge-cat">' + esc(contact.category.name) + '</span>' : '') +
+          (contact.status ? '<span class="badge-status" style="background:' + (STATUS_COLORS[contact.status]||'#888') + '">' + esc(contact.status) + '</span>' : '') +
+        '</div>' +
+        (contact.phone ? '<p><a href="tel:' + esc(contact.phone) + '">📞 ' + esc(contact.phone) + '</a></p>' : '') +
+        (contact.notes ? '<p>' + esc(contact.notes) + '</p>' : '')
+      )) +
+
+      (contact.ambassador ? '<div class="hint">שגריר אחראי: ' + esc(contact.ambassador.name) + '</div>' : '<div class="hint">לא משויך לשגריר</div>') +
+
+      '<hr class="divider">' +
+      '<div class="sec-title" style="margin-bottom:8px">היסטוריית סטטוסים</div>' +
+      renderTimeline(history);
+
+    sheet.querySelector('#sh-close').onclick = function(){ overlay.remove(); };
+
+    if (canEdit){
+      sheet.querySelector('#sh-save').onclick = function(){
+        var payload = {
+          name: sheet.querySelector('#e-name').value.trim(),
+          phone: sheet.querySelector('#e-phone').value.trim(),
+          category: sheet.querySelector('#e-cat').value.trim(),
+          notes: sheet.querySelector('#e-notes').value.trim()
+        };
+        api('/contacts/' + contact.id, {method:'PATCH', body: JSON.stringify(payload)}).then(function(){
+          overlay.remove();
+          state.categories = state.categories; // will refresh below
+          loadShared().then(renderApp);
+        }).catch(function(e){ alert(e.message); });
+      };
+      Array.prototype.forEach.call(sheet.querySelectorAll('[data-status]'), function(btn){
+        btn.onclick = function(){
+          var status = btn.getAttribute('data-status');
+          api('/contacts/' + contact.id + '/status', {method:'POST', body: JSON.stringify({status:status})}).then(function(){
+            overlay.remove();
+            renderApp();
+          }).catch(function(e){ alert(e.message); });
+        };
+      });
+    }
+  }
+
+  function renderTimeline(history){
+    if (!history.history.length) return '<div class="hint">עדיין לא נרשם סטטוס.</div>';
+    var n = history.history.length;
+    return '<div class="timeline">' + history.history.map(function(h, i){
+      var label = i === 0 ? 'סטטוס ראשוני' : (i === n - 1 ? 'סטטוס נוכחי' : 'סטטוס קודם');
+      return '<div class="tl-item">' +
+        (i < n - 1 ? '<div class="tl-line"></div>' : '') +
+        '<div class="tl-dot" style="background:' + (STATUS_COLORS[h.status]||'#888') + '"></div>' +
+        '<div class="tl-body"><div class="tl-status">' + esc(h.status) + ' <span style="color:var(--muted);font-weight:500">· ' + label + '</span></div>' +
+        '<div class="tl-meta">' + fmtDate(h.changed_at) + (h.changed_by ? ' · ' + esc(h.changed_by) : '') + '</div></div>' +
+      '</div>';
+    }).join('') + '</div>';
+  }
+
+  // ===================== ADD CONTACT =====================
+  function renderAdd(content){
+    var catList = state.categories.map(function(c){ return '<option value="' + esc(c.name) + '">'; }).join('');
+    var ambOptions = '';
+    content.innerHTML =
+      '<div class="sec-title">הוספת איש קשר חדש</div>' +
+      '<div class="field"><label>שם מלא *</label><input id="a-name"></div>' +
+      '<div class="form-row2">' +
+        '<div class="field"><label>טלפון</label><input id="a-phone" type="tel"></div>' +
+        '<div class="field"><label>קטגוריה</label><input id="a-cat" list="cat-dl2"></div>' +
+      '</div>' +
+      '<datalist id="cat-dl2">' + catList + '</datalist>' +
+      '<div class="field"><label>הערות</label><textarea id="a-notes"></textarea></div>' +
+      (state.me.isAdmin ? '<div class="field" id="a-amb-wrap"><label>שיוך לשגריר</label><select id="a-amb"><option value="">אני (' + esc(state.me.name) + ')</option><option value="none">ללא שיוך — לרשימה הכללית</option></select></div>' : '') +
+      (state.loginError ? '' : '') +
+      '<div id="a-msg"></div>' +
+      '<button class="btn btn-primary" id="a-submit">➕ הוספה לרשימה</button>' +
+      '<div class="hint">איש קשר חדש שתוסיפו ישויך אוטומטית אליכם, אלא אם תבחרו אחרת.</div>';
+
+    if (state.me.isAdmin){
+      api('/ambassadors').then(function(ambs){
+        var sel = content.querySelector('#a-amb');
+        ambs.forEach(function(a){
+          if (a.id === state.me.id) return;
+          var opt = document.createElement('option');
+          opt.value = a.id; opt.textContent = a.name;
+          sel.appendChild(opt);
+        });
+      }).catch(function(){});
+    }
+
+    content.querySelector('#a-submit').onclick = function(){
+      var name = content.querySelector('#a-name').value.trim();
+      var msg = content.querySelector('#a-msg');
+      if (!name){ msg.innerHTML = '<div class="err">יש להזין שם</div>'; return; }
+      var payload = {
+        name: name,
+        phone: content.querySelector('#a-phone').value.trim(),
+        category: content.querySelector('#a-cat').value.trim(),
+        notes: content.querySelector('#a-notes').value.trim()
+      };
+      if (state.me.isAdmin){
+        var val = content.querySelector('#a-amb').value;
+        if (val === 'none') payload.ambassadorId = null;
+        else if (val) payload.ambassadorId = parseInt(val, 10);
+      }
+      api('/contacts', {method:'POST', body: JSON.stringify(payload)}).then(function(){
+        msg.innerHTML = '<div class="ok-msg">נוסף בהצלחה ✔️</div>';
+        content.querySelector('#a-name').value = '';
+        content.querySelector('#a-phone').value = '';
+        content.querySelector('#a-cat').value = '';
+        content.querySelector('#a-notes').value = '';
+        loadShared();
+      }).catch(function(e){
+        msg.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+      });
+    };
+  }
+
+  // ===================== ADMIN =====================
+  function renderAdmin(content){
+    content.innerHTML =
+      '<div class="admin-tabs">' +
+        '<button data-at="ambassadors" class="' + (state.adminTab==='ambassadors'?'active':'') + '">שגרירים</button>' +
+        '<button data-at="categories" class="' + (state.adminTab==='categories'?'active':'') + '">קטגוריות</button>' +
+        '<button data-at="all" class="' + (state.adminTab==='all'?'active':'') + '">כל אנשי הקשר</button>' +
+        '<button data-at="import" class="' + (state.adminTab==='import'?'active':'') + '">ייבוא</button>' +
+      '</div>' +
+      '<div id="admin-body"><div class="spinner">טוען…</div></div>';
+
+    Array.prototype.forEach.call(content.querySelectorAll('[data-at]'), function(btn){
+      btn.onclick = function(){ state.adminTab = btn.getAttribute('data-at'); renderAdmin(content); };
+    });
+
+    var body = content.querySelector('#admin-body');
+    if (state.adminTab === 'ambassadors') renderAdminAmbassadors(body);
+    else if (state.adminTab === 'categories') renderAdminCategories(body);
+    else if (state.adminTab === 'all') renderAdminAllContacts(body);
+    else if (state.adminTab === 'import') renderAdminImport(body);
+  }
+
+  function renderAdminAmbassadors(body){
+    api('/ambassadors').then(function(ambs){
+      body.innerHTML =
+        '<table class="simple"><thead><tr><th>שם</th><th>טלפון</th><th>אנשי קשר</th><th>מנהל</th><th></th></tr></thead><tbody>' +
+        ambs.map(function(a){
+          return '<tr><td>' + esc(a.name) + '</td><td>' + esc(a.phone || '—') + '</td><td>' + a.contactCount + '</td>' +
+            '<td>' + (a.isAdmin ? '✔️' : '') + '</td>' +
+            '<td><button class="link-btn" data-reset="' + a.id + '">איפוס קוד</button> ' +
+            (a.id !== state.me.id ? '<button class="link-btn danger" data-del="' + a.id + '">מחיקה</button>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table>' +
+        '<hr class="divider">' +
+        '<div class="sec-title">הוספת שגריר חדש</div>' +
+        '<div class="field"><label>שם *</label><input id="na-name"></div>' +
+        '<div class="form-row2">' +
+          '<div class="field"><label>טלפון</label><input id="na-phone" type="tel"></div>' +
+          '<div class="field"><label>קוד כניסה *</label><input id="na-pin" type="tel" inputmode="numeric"></div>' +
+        '</div>' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:12px">' +
+          '<input type="checkbox" id="na-admin"> הרשאת מנהל</label>' +
+        '<div id="na-msg"></div>' +
+        '<button class="btn btn-gold" id="na-submit">➕ הוספת שגריר</button>';
+
+      Array.prototype.forEach.call(body.querySelectorAll('[data-reset]'), function(btn){
+        btn.onclick = function(){
+          var pin = prompt('קוד כניסה חדש:');
+          if (!pin) return;
+          api('/ambassadors/' + btn.getAttribute('data-reset'), {method:'PATCH', body: JSON.stringify({pin:pin})})
+            .then(function(){ alert('הקוד עודכן'); }).catch(function(e){ alert(e.message); });
+        };
+      });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-del]'), function(btn){
+        btn.onclick = function(){
+          if (!confirm('למחוק שגריר זה? אנשי הקשר שלו יעברו ל"לא משויכים".')) return;
+          api('/ambassadors/' + btn.getAttribute('data-del'), {method:'DELETE'})
+            .then(function(){ renderAdminAmbassadors(body); }).catch(function(e){ alert(e.message); });
+        };
+      });
+      body.querySelector('#na-submit').onclick = function(){
+        var name = body.querySelector('#na-name').value.trim();
+        var pin = body.querySelector('#na-pin').value.trim();
+        var msg = body.querySelector('#na-msg');
+        if (!name || !pin){ msg.innerHTML = '<div class="err">יש להזין שם וקוד כניסה</div>'; return; }
+        api('/ambassadors', {method:'POST', body: JSON.stringify({
+          name: name,
+          phone: body.querySelector('#na-phone').value.trim(),
+          pin: pin,
+          isAdmin: body.querySelector('#na-admin').checked
+        })}).then(function(){
+          renderAdminAmbassadors(body);
+        }).catch(function(e){ msg.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
+      };
+    }).catch(function(e){ body.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
+  }
+
+  function renderAdminCategories(body){
+    body.innerHTML =
+      '<div class="field"><label>קטגוריה חדשה</label><div style="display:flex;gap:8px">' +
+      '<input id="nc-name" style="flex:1"><button class="btn btn-gold btn-sm" id="nc-add">הוספה</button></div></div>' +
+      '<div id="nc-list"><div class="spinner">טוען…</div></div>';
+
+    function reload(){
+      api('/categories').then(function(cats){
+        state.categories = cats;
+        var list = body.querySelector('#nc-list');
+        if (!cats.length){ list.innerHTML = '<div class="hint">אין עדיין קטגוריות.</div>'; return; }
+        list.innerHTML = cats.map(function(c){
+          return '<div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px">' +
+            '<span>' + esc(c.name) + '</span><button class="link-btn danger" data-delc="' + c.id + '">מחיקה</button></div>';
+        }).join('');
+        Array.prototype.forEach.call(list.querySelectorAll('[data-delc]'), function(btn){
+          btn.onclick = function(){
+            api('/categories/' + btn.getAttribute('data-delc'), {method:'DELETE'}).then(reload).catch(function(e){ alert(e.message); });
+          };
+        });
+      });
+    }
+    body.querySelector('#nc-add').onclick = function(){
+      var v = body.querySelector('#nc-name').value.trim();
+      if (!v) return;
+      api('/categories', {method:'POST', body: JSON.stringify({name:v})}).then(function(){
+        body.querySelector('#nc-name').value = '';
+        reload();
+      }).catch(function(e){ alert(e.message); });
+    };
+    reload();
+  }
+
+  function renderAdminAllContacts(body){
+    Promise.all([api('/contacts?scope=all'), api('/ambassadors')]).then(function(res){
+      var contacts = res[0], ambs = res[1];
+      body.innerHTML =
+        '<div class="toolbar"><input id="ac-search" placeholder="חיפוש לפי שם / טלפון"></div>' +
+        '<div id="ac-list"></div>';
+      function draw(){
+        var q = body.querySelector('#ac-search').value.trim().toLowerCase();
+        var filtered = contacts.filter(function(c){
+          if (!q) return true;
+          return (c.name && c.name.toLowerCase().indexOf(q) > -1) || (c.phone && c.phone.indexOf(q) > -1);
+        });
+        var listEl = body.querySelector('#ac-list');
+        if (!filtered.length){ listEl.innerHTML = '<div class="empty">לא נמצאו תוצאות.</div>'; return; }
+        listEl.innerHTML = filtered.map(function(c){
+          var statusBadge = c.status ? '<span class="badge-status" style="background:' + (STATUS_COLORS[c.status]||'#888') + '">' + esc(c.status) + '</span>' : '';
+          return '<div class="card">' +
+            '<div class="card-top"><div><div class="card-name" style="cursor:pointer" data-open="' + c.id + '">' + esc(c.name) + '</div>' +
+            '<div class="card-meta">' + (c.phone ? esc(c.phone) : '') + '</div></div></div>' +
+            '<div class="badges">' + (c.category ? '<span class="badge-cat">' + esc(c.category.name) + '</span>' : '') + statusBadge + '</div>' +
+            '<div class="field" style="margin-top:10px;margin-bottom:0"><label>שיוך לשגריר</label>' +
+            '<select data-assign="' + c.id + '"><option value="">— ללא שיוך —</option>' +
+            ambs.map(function(a){ return '<option value="' + a.id + '" ' + (c.ambassador && c.ambassador.id === a.id ? 'selected' : '') + '>' + esc(a.name) + '</option>'; }).join('') +
+            '</select></div>' +
+          '</div>';
+        }).join('');
+        Array.prototype.forEach.call(listEl.querySelectorAll('[data-open]'), function(el){
+          el.onclick = function(){ openContact(el.getAttribute('data-open')); };
+        });
+        Array.prototype.forEach.call(listEl.querySelectorAll('[data-assign]'), function(sel){
+          sel.onchange = function(){
+            api('/contacts/' + sel.getAttribute('data-assign') + '/assign', {method:'POST', body: JSON.stringify({ambassadorId: sel.value ? parseInt(sel.value,10) : null})})
+              .then(function(updated){
+                var idx = contacts.findIndex(function(c){ return c.id === updated.id; });
+                if (idx > -1) contacts[idx] = updated;
+              }).catch(function(e){ alert(e.message); });
+          };
+        });
+      }
+      body.querySelector('#ac-search').oninput = draw;
+      draw();
+    }).catch(function(e){ body.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
+  }
+
+  function renderAdminImport(body){
+    body.innerHTML =
+      '<div class="sec-title">ייבוא רשימה מרוכז</div>' +
+      '<div class="hint">הדביקו כאן שורות מתוך אקסל / Google Sheets (כל שורה = איש קשר אחד, מופרד בטאבים):<br>' +
+      '<b>שם [טאב] טלפון [טאב] קטגוריה [טאב] שם שגריר (אופציונלי)</b><br>' +
+      'אם לא צויין שגריר — איש הקשר יכנס לרשימה הכללית הלא-משויכת.</div>' +
+      '<div class="field"><textarea id="imp-text" rows="8" placeholder="ישראל ישראלי	0501234567	הורה בית ספר	דוד כהן"></textarea></div>' +
+      '<button class="btn btn-primary" id="imp-submit">📥 ייבוא</button>' +
+      '<div id="imp-result" style="margin-top:14px"></div>';
+
+    body.querySelector('#imp-submit').onclick = function(){
+      var raw = body.querySelector('#imp-text').value;
+      var lines = raw.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
+      if (!lines.length){ alert('לא הודבק תוכן'); return; }
+      var rows = lines.map(function(l){
+        var parts = l.split('\t');
+        return { name: (parts[0]||'').trim(), phone: (parts[1]||'').trim(), category: (parts[2]||'').trim(), ambassador: (parts[3]||'').trim() };
+      });
+      api('/contacts/bulk-import', {method:'POST', body: JSON.stringify({rows:rows})}).then(function(res){
+        var resultEl = body.querySelector('#imp-result');
+        resultEl.innerHTML = '<div class="ok-msg">נוספו ' + res.added + ' אנשי קשר' + (res.failed ? ', ' + res.failed + ' נכשלו' : '') + '</div>' +
+          res.results.filter(function(r){ return !r.ok; }).map(function(r){
+            return '<div class="import-result bad">✖ ' + esc(r.name) + ' — ' + esc(r.error) + '</div>';
+          }).join('');
+        body.querySelector('#imp-text').value = '';
+        loadShared();
+      }).catch(function(e){ body.querySelector('#imp-result').innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
+    };
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
