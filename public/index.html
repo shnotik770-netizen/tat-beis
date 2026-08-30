@@ -1253,42 +1253,66 @@ function renderLedger(data) {
 }
 function _reRenderFamilyLedger(){ renderFamilyLedger(window._familyData); }
 function openFamilyLedger(studentId){
+  window._famClickFilter = null;
   openM('<div class="loading">טוען כרטסת משפחתית...</div>');
   google.script.run.withSuccessHandler(renderFamilyLedger).withFailureHandler(function(e){ toast(e.message,'err'); }).getFamilyLedger(studentId);
 }
+function famCellClick(el){
+  window._famClickFilter = {col: el.getAttribute('data-col'), val: el.getAttribute('data-val'), label: el.getAttribute('data-label')};
+  _reRenderFamilyLedger();
+}
+function clearFamClickFilter(){ window._famClickFilter = null; _reRenderFamilyLedger(); }
 function renderFamilyLedger(data){
   if(!data){ toast('שגיאה בטעינה','err'); return; }
   window._familyData = data; // לשימוש בשליחת וואטסאפ
 
-  const sortedTimeline = tblApplySort('famLedger', data.timeline, function(col, r){
-    if(col==='type') return r.type==='demand'?(r.isFamily?'0':'1'):'2';
+  const q = ((document.getElementById('famSearch')||{}).value || '').trim().toLowerCase();
+  const dFrom = (document.getElementById('famDateFrom')||{}).value || '';
+  const dTo = (document.getElementById('famDateTo')||{}).value || '';
+  const clickFilter = window._famClickFilter || null;
+
+  let timeline = data.timeline.slice();
+  if(q){
+    timeline = timeline.filter(function(r){
+      const detailsTxt = r.type==='demand' ? r.title : ((r.payer||'')+' '+(r.method||''));
+      return (r.childName||'').toLowerCase().indexOf(q)>-1 || (detailsTxt||'').toLowerCase().indexOf(q)>-1;
+    });
+  }
+  if(dFrom || dTo){
+    timeline = timeline.filter(function(r){
+      const iso = isoFromDMY(r.date);
+      if(!iso) return true;
+      if(dFrom && iso<dFrom) return false;
+      if(dTo && iso>dTo) return false;
+      return true;
+    });
+  }
+  if(clickFilter){
+    timeline = timeline.filter(function(r){
+      if(clickFilter.col==='child') return r.childId===clickFilter.val;
+      if(clickFilter.col==='date') return r.date===clickFilter.val;
+      if(clickFilter.col==='amount') return String(r.amount)===clickFilter.val;
+      return true;
+    });
+  }
+
+  const sortedTimeline = tblApplySort('famLedger', timeline, function(col, r){
     if(col==='date') return dmyToSortable(r.date);
     if(col==='child') return r.childName||'';
     if(col==='details') return r.type==='demand' ? r.title : ((r.payer||'')+(r.method?' '+r.method:''));
     if(col==='amount') return r.amount;
-    if(col==='status') return r.type==='demand' ? (r.balance>0?1:0) : -1;
     return '';
   });
   const rows = sortedTimeline.map(function(r){
+    const dateCell = '<td style="cursor:pointer" data-col="date" data-val="'+esc(r.date)+'" data-label="'+esc('תאריך: '+r.date)+'" onclick="famCellClick(this)">'+r.date+'</td>';
+    const amtCell = '<td style="cursor:pointer" data-col="amount" data-val="'+esc(String(r.amount))+'" data-label="'+esc('סכום: ₪'+r.amount.toLocaleString())+'" onclick="famCellClick(this)">₪'+r.amount.toLocaleString()+(r.type==='payment'&&r.isShared?' <span class="t2">(מתוך ₪'+r.totalAmount.toLocaleString()+' כולל)</span>':'')+'</td>';
+    const childCell = '<td style="cursor:pointer" data-col="child" data-val="'+esc(r.childId)+'" data-label="'+esc('ילד/ה: '+r.childName)+'" onclick="famCellClick(this)">'+r.childName+(r.isShared?' <span class="badge am">'+(r.type==='demand'?(r.isFamily?'👨‍👩‍👧 חלק ממשפחתי עם':'משותף עם'):'פוצל עם')+' '+r.sharedWith.join(', ')+'</span>':'')+'</td>';
     if(r.type==='demand'){
-      return '<tr>' +
-        '<td><span class="badge">📋 '+(r.isFamily?'חיוב משפחתי':'דרישה')+' '+r.num+'</span></td>' +
-        '<td>'+r.date+'</td>' +
-        '<td>'+r.childName+(r.isShared?' <span class="badge am">'+(r.isFamily?'👨‍👩‍👧 חלק ממשפחתי עם':'משותף עם')+' '+r.sharedWith.join(', ')+'</span>':'')+'</td>' +
-        '<td>'+r.title+'</td>' +
-        '<td>₪'+r.amount.toLocaleString()+'</td>' +
-        '<td><span class="badge '+(r.balance>0?'rd':'gr')+'">'+(r.balance>0?'חוב ₪'+r.balance.toLocaleString():'שולם ✓')+'</span></td>' +
-        '</tr>';
-    } else {
-      return '<tr style="background:var(--grnl)">' +
-        '<td><span class="badge gr">💳 תשלום '+r.num+'</span></td>' +
-        '<td>'+r.date+'</td>' +
-        '<td>'+r.childName+(r.isShared?' <span class="badge am">פוצל עם '+r.sharedWith.join(', ')+'</span>':'')+'</td>' +
-        '<td>'+(r.payer?'שילם/ה: '+r.payer:'')+(r.method?' · '+r.method:'')+'</td>' +
-        '<td>₪'+r.amount.toLocaleString()+(r.isShared?' <span class="t2">(מתוך ₪'+r.totalAmount.toLocaleString()+' כולל)</span>':'')+'</td>' +
-        '<td>—</td>' +
-        '</tr>';
+      const detailsTxt = '📋 '+esc(r.title)+(r.balance>0?' · <span class="t2">חוב ₪'+r.balance.toLocaleString()+'</span>':' · <span class="t2">שולם ✓</span>');
+      return '<tr>'+dateCell+childCell+'<td>'+detailsTxt+'</td>'+amtCell+'</tr>';
     }
+    const detailsTxt = '💳 '+(r.payer?'שילם/ה: '+esc(r.payer):'')+(r.method?' · '+esc(r.method):'');
+    return '<tr style="background:var(--grnl)">'+dateCell+childCell+'<td>'+detailsTxt+'</td>'+amtCell+'</tr>';
   }).join('');
 
   const parentChips = data.parents.map(function(p){
@@ -1305,23 +1329,34 @@ function renderFamilyLedger(data){
       '</span></div>';
   }).join('');
 
+  const netBanner = data.familyNet>0
+    ? '<div class="card" style="border-right:3px solid var(--red);background:var(--redl);margin-bottom:12px"><strong style="color:var(--red)">⚠️ למשפחה חוב פתוח של ₪'+data.familyNet.toLocaleString()+'</strong></div>'
+    : (data.familyNet<0
+      ? '<div class="card" style="border-right:3px solid var(--amb);background:var(--ambl);margin-bottom:12px"><strong style="color:var(--amb)">💰 למשפחה זכות של ₪'+Math.abs(data.familyNet).toLocaleString()+'</strong></div>'
+      : '<div class="card" style="border-right:3px solid var(--grn);background:var(--grnl);margin-bottom:12px"><strong style="color:var(--grn)">✅ המשפחה מסולקת</strong></div>');
+
   document.getElementById('modal').innerHTML =
     '<div class="m-title">👨‍👩‍👧 כרטסת משפחתית</div>' +
+    netBanner +
     '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">' +
-      '<div class="stat bl" style="padding:10px"><div class="stat-l">סה"כ חויב</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalDemanded.toLocaleString()+'</div></div>' +
+      '<div class="stat bl" style="padding:10px"><div class="stat-l">סה"כ דרישות</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalDemanded.toLocaleString()+'</div></div>' +
       '<div class="stat gr" style="padding:10px"><div class="stat-l">סה"כ שולם</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalPaid.toLocaleString()+'</div></div>' +
       '<div class="stat '+(data.familyTotalBalance>0?'rd':'gr')+'" style="padding:10px"><div class="stat-l">'+(data.familyTotalBalance>0?'חוב משפחתי':'מסולק')+'</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalBalance.toLocaleString()+'</div></div>' +
     '</div>' +
+    '<div class="sr" style="margin-bottom:10px">' +
+      '<input id="famSearch" placeholder="חיפוש (ילד, פרטים)..." value="'+esc(q)+'" oninput="_reRenderFamilyLedger()">' +
+      '<input id="famDateFrom" type="date" value="'+esc(dFrom)+'" onchange="_reRenderFamilyLedger()" title="מתאריך">' +
+      '<input id="famDateTo" type="date" value="'+esc(dTo)+'" onchange="_reRenderFamilyLedger()" title="עד תאריך">' +
+      (clickFilter ? '<button class="btn b-h b-sm" onclick="clearFamClickFilter()">'+esc(clickFilter.label)+' ✕</button>' : '') +
+    '</div>' +
     '<div class="card" style="padding:0;overflow-x:auto;margin-bottom:14px"><table>' +
     '<thead><tr>'+
-      th('famLedger','type','סוג','_reRenderFamilyLedger')+
       th('famLedger','date','תאריך','_reRenderFamilyLedger')+
       th('famLedger','child','ילד/ה','_reRenderFamilyLedger')+
       th('famLedger','details','פרטים','_reRenderFamilyLedger')+
       th('famLedger','amount','סכום','_reRenderFamilyLedger')+
-      th('famLedger','status','סטטוס','_reRenderFamilyLedger')+
     '</tr></thead>' +
-    '<tbody>'+(rows||'<tr><td colspan="6" class="empty">אין נתונים</td></tr>')+'</tbody></table></div>' +
+    '<tbody>'+(rows||'<tr><td colspan="4" class="empty">אין נתונים תואמים</td></tr>')+'</tbody></table></div>' +
     '<div class="fg"><label>שליחת הדוח בוואטסאפ להורה</label><div class="chips" id="famParentChips">'+(parentChips||'<span class="t2">אין מספרי טלפון רשומים</span>')+'</div></div>' +
     '<div class="fg"><label>בני המשפחה</label><div class="card" style="padding:0 12px">'+membersList+'</div></div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">סגור</button><button class="btn b-g" onclick="openPayMForFamilyLedger()">💳 רישום תשלום</button><a class="btn b-g" id="famWaBtn" style="pointer-events:none;opacity:.5" target="_blank">💬 שלח דוח בוואטסאפ</a></div>';
