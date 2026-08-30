@@ -397,8 +397,10 @@ async function getFamilyLedger(studentId) {
   const familyTotalDemanded = members.reduce((s, m) => s + m.totalDemanded, 0);
   const familyTotalPaid = members.reduce((s, m) => s + m.totalPaid, 0);
   // נטו ברמת המשפחה, לא סכום היתרות האישיות: תשלום שלא פוצל בדיוק בין אחים (למשל תשלום כללי אחד
-  // שמכסה כמה ילדים) לא אמור להישאר "חוב" אצל מי מהם כל עוד המשפחה כולה שילמה את מה שנדרש ממנה
-  const familyNet = Math.round((familyTotalDemanded - familyTotalPaid) * 100) / 100; // חיובי=חוב, שלילי=זכות
+  // שמכסה כמה ילדים) לא אמור להישאר "חוב" אצל מי מהם כל עוד המשפחה כולה שילמה את מה שנדרש ממנה.
+  // חוב זניח (עד ₪2, כולל) נחשב מסולק בכל המערכת — לא יוצר תג/רישום/התראה, כדי שהפרשי עיגול לא יטרידו
+  const rawNet = Math.round((familyTotalDemanded - familyTotalPaid) * 100) / 100; // חיובי=חוב, שלילי=זכות
+  const familyNet = (rawNet > 0 && rawNet <= 2) ? 0 : rawNet;
   const familyTotalBalance = Math.max(0, familyNet);
 
   const demandNumberMap = {}, paymentNumberMap = {};
