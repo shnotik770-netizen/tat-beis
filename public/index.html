@@ -1357,9 +1357,9 @@ function renderFamilyLedger(data){
       '<div class="stat '+(data.familyTotalBalance>0?'rd':'gr')+'" style="padding:10px"><div class="stat-l">'+(data.familyTotalBalance>0?'חוב משפחתי':'מסולק')+'</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalBalance.toLocaleString()+'</div></div>' +
     '</div>' +
     '<div class="sr" style="margin-bottom:10px">' +
-      '<input id="famSearch" placeholder="חיפוש (ילד, פרטים)..." value="'+esc(q)+'" oninput="_reRenderFamilyLedger()">' +
-      '<input id="famDateFrom" type="date" value="'+esc(dFrom)+'" onchange="_reRenderFamilyLedger()" title="מתאריך">' +
-      '<input id="famDateTo" type="date" value="'+esc(dTo)+'" onchange="_reRenderFamilyLedger()" title="עד תאריך">' +
+      '<input id="famSearch" style="flex:1 1 200px" placeholder="חיפוש (ילד, פרטים)..." value="'+esc(q)+'" oninput="_reRenderFamilyLedger()">' +
+      '<input id="famDateFrom" type="date" style="flex:0 0 140px" value="'+esc(dFrom)+'" onchange="_reRenderFamilyLedger()" title="מתאריך">' +
+      '<input id="famDateTo" type="date" style="flex:0 0 140px" value="'+esc(dTo)+'" onchange="_reRenderFamilyLedger()" title="עד תאריך">' +
       (clickFilter ? '<button class="btn b-h b-sm" onclick="clearFamClickFilter()">'+esc(clickFilter.label)+' ✕</button>' : '') +
     '</div>' +
     '<div class="card" style="padding:0;overflow-x:auto;margin-bottom:14px"><table>' +
@@ -2006,9 +2006,9 @@ function renderPayments() {
   const dTo = (document.getElementById('payDateTo')||{}).value || '';
   document.getElementById('pg').innerHTML =
     '<div class="sr" style="margin-bottom:10px">' +
-      '<input id="paySearch" placeholder="חיפוש (תלמיד, משלם, שיטה)..." value="'+esc(q)+'" oninput="renderPaymentsResults()">' +
-      '<input id="payDateFrom" type="date" value="'+esc(dFrom)+'" onchange="renderPaymentsResults()" title="מתאריך">' +
-      '<input id="payDateTo" type="date" value="'+esc(dTo)+'" onchange="renderPaymentsResults()" title="עד תאריך">' +
+      '<input id="paySearch" style="flex:1 1 220px" placeholder="חיפוש (תלמיד, משלם, שיטה)..." value="'+esc(q)+'" oninput="renderPaymentsResults()">' +
+      '<input id="payDateFrom" type="date" style="flex:0 0 150px" value="'+esc(dFrom)+'" onchange="renderPaymentsResults()" title="מתאריך">' +
+      '<input id="payDateTo" type="date" style="flex:0 0 150px" value="'+esc(dTo)+'" onchange="renderPaymentsResults()" title="עד תאריך">' +
     '</div>' +
     '<div id="payResultsBox"></div>';
   renderPaymentsResults();
