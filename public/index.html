@@ -672,11 +672,10 @@ function stDebt(sid) {
     .reduce(function(s,d){ return s+Math.max(0, d.amount-paidOnDem(sid,d.id)); },0);
   return Math.max(0, fromDem - genCredit(sid));
 }
-// חוב לתצוגה: אם ברמת המשפחה המאזן מאוזן (למשל תשלום שלא פוצל בדיוק בין אחים), אף ילד
-// במשפחה לא יוצג בשום מקום כבעל חוב אישי — רק כשלמשפחה כולה יש נטו חוב פתוח
+// חוב לתצוגה ליד שם תלמיד (ברשימות/חיפוש/בחירה): תמיד החוב הנטו של המשפחה כולה, לא הסכום
+// האישי הגולמי של הילד — כדי שלא יוצג "חוב" מטעה כשהחלוקה בפועל בין האחים לא פוצלה בדיוק
 function displayDebt(sid){
-  if(familyNetDebt(clientFamilyIds(sid))<0.01) return 0;
-  return stDebt(sid);
+  return familyNetDebt(clientFamilyIds(sid));
 }
 function dmyToSortable(dmy){
   if(!dmy) return 99999999;
@@ -2594,7 +2593,7 @@ function openExportDebt(){
 
 // ── Pending Payments Import/Assign ──
 // חיפוש תלמיד לשיוך מהיר, לפי שם תלמיד או שם הורה. ההצעות מוצגות בתיבה מותאמת-אישית (לא datalist
-// דפדפן) כדי שהמידע — שם ילד, הורים, חוב אישי, חוב משפחתי, בסדר הזה — ישבור שורה ולא ייחתך.
+// דפדפן) כדי שהמידע — שם ילד, הורים, חוב משפחתי, בסדר הזה — ישבור שורה ולא ייחתך.
 function impMatchStudents(query){
   const q = (query||'').trim().toLowerCase();
   if(!q) return [];
@@ -2606,13 +2605,12 @@ function impMatchStudents(query){
   }).slice(0,8);
 }
 function impSuggestionRow(s){
+  // מציגים רק את החוב הנטו ברמת המשפחה — לא סכום אישי גולמי, כדי לא להטעות כשהחלוקה בין אחים לא פוצלה בדיוק
   const famDebt = Math.round(familyNetDebt(clientFamilyIds(s.id)));
-  const debt = famDebt<0.01 ? 0 : Math.round(stDebt(s.id));
   const parents = [s.dadName, s.momName].filter(Boolean).join(', ');
   return '<div class="p-row" style="flex-direction:column;align-items:flex-start;gap:2px;cursor:pointer;padding:7px 8px" data-id="'+s.id+'" data-name="'+esc(s.firstName+' '+s.lastName)+'">' +
     '<div><strong>'+esc(s.firstName+' '+s.lastName)+'</strong> <span class="badge">'+(classKey(s)||'—')+'</span></div>' +
     (parents?'<div class="t2">הורים: '+esc(parents)+'</div>':'') +
-    '<div class="t2">חוב אישי: ₪'+debt.toLocaleString()+'</div>' +
     '<div class="t2">חוב משפחתי: ₪'+famDebt.toLocaleString()+'</div>' +
   '</div>';
 }
