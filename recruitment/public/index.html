@@ -151,14 +151,12 @@
   };
 
   var state = {
-    token: localStorage.getItem('gius_token') || null,
     me: null,
     tab: 'mine',
     adminTab: 'ambassadors',
     categories: [],
     statuses: [],
     ambassadors: [],
-    loginError: '',
     busy: false
   };
 
@@ -171,7 +169,7 @@
   function api(path, opts){
     opts = opts || {};
     var headers = Object.assign({'Content-Type':'application/json'}, opts.headers || {});
-    if (state.token) headers['x-auth-token'] = state.token;
+    if (state.me) headers['x-ambassador-id'] = state.me.id;
     return fetch(API + path, Object.assign({}, opts, {headers: headers}))
       .then(function(res){
         return res.text().then(function(text){
@@ -183,9 +181,9 @@
       });
   }
 
-  function setToken(t){
-    state.token = t;
-    if (t) localStorage.setItem('gius_token', t); else localStorage.removeItem('gius_token');
+  function setIdentity(amb){
+    state.me = amb;
+    if (amb) localStorage.setItem('gius_ambassador_id', String(amb.id)); else localStorage.removeItem('gius_ambassador_id');
   }
 
   function fmtDate(iso){
@@ -195,14 +193,20 @@
   }
 
   // ===================== BOOT =====================
+  // אין מסך התחברות — בוחרים "מי אני" מרשימת השגרירים הקיימת, וזה נשמר במכשיר
   function boot(){
-    if (!state.token) return renderLogin();
-    api('/me').then(function(me){
-      state.me = me;
-      loadShared().then(renderApp);
-    }).catch(function(){
-      setToken(null);
-      renderLogin();
+    api('/ambassadors').then(function(ambs){
+      state.ambassadors = ambs;
+      var savedId = localStorage.getItem('gius_ambassador_id');
+      var found = savedId && ambs.find(function(a){ return String(a.id) === savedId; });
+      if (found){
+        state.me = found;
+        loadShared().then(renderApp);
+      } else {
+        renderPicker();
+      }
+    }).catch(function(e){
+      document.getElementById('app').innerHTML = '<div class="content"><div class="err">' + esc(e.message) + '</div></div>';
     });
   }
 
@@ -213,54 +217,55 @@
     ]);
   }
 
-  // ===================== LOGIN =====================
-  function renderLogin(){
+  // ===================== "מי אתה?" =====================
+  function renderPicker(){
     var app = document.getElementById('app');
+    var ambs = state.ambassadors;
     app.innerHTML =
       '<div class="login-wrap"><div class="login-card">' +
         '<div class="emoji">🤝</div>' +
         '<h2>ערב שותפות — בית ספר חב"ד עפולה</h2>' +
-        '<p>התחברות שגרירים למערכת הגיוס</p>' +
-        (state.loginError ? '<div class="err">' + esc(state.loginError) + '</div>' : '') +
-        '<div class="field"><label>שם מלא</label><input id="login-name" placeholder="לדוגמה: ישראל ישראלי" autocomplete="username"></div>' +
-        '<div class="field"><label>קוד כניסה</label><input id="login-pin" type="tel" inputmode="numeric" placeholder="הקוד שקיבלת" autocomplete="current-password"></div>' +
-        '<button class="btn btn-primary" id="login-btn">כניסה</button>' +
+        '<p>מי אתה?</p>' +
+        (ambs.length ? '<div class="field"><input id="pk-search" placeholder="חיפוש שם…"></div>' : '') +
+        '<div id="pk-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:6px"></div>' +
+        (!ambs.length ? '<div class="hint">עדיין אין שגרירים ברשימה.</div>' : '') +
+        '<div class="hint">אם השם שלך לא מופיע — בקש מהמנהל להוסיף אותך ברשימת השגרירים.</div>' +
       '</div></div>';
 
-    document.getElementById('login-btn').onclick = doLogin;
-    document.getElementById('login-pin').addEventListener('keydown', function(e){ if (e.key === 'Enter') doLogin(); });
-    document.getElementById('login-name').addEventListener('keydown', function(e){ if (e.key === 'Enter') doLogin(); });
+    function draw(){
+      var q = (app.querySelector('#pk-search') ? app.querySelector('#pk-search').value : '').trim().toLowerCase();
+      var filtered = ambs.filter(function(a){ return !q || a.name.toLowerCase().indexOf(q) > -1; });
+      var list = app.querySelector('#pk-list');
+      list.innerHTML = filtered.map(function(a){
+        return '<button class="btn btn-outline" data-pick="' + a.id + '" style="text-align:right;justify-content:space-between;display:flex">' +
+          '<span>' + esc(a.name) + '</span>' + (a.isAdmin ? '<span class="badge" style="background:var(--gold);color:#3a2a04">מנהל</span>' : '') +
+        '</button>';
+      }).join('') || '<div class="hint">לא נמצאו שגרירים בשם הזה.</div>';
+      Array.prototype.forEach.call(list.querySelectorAll('[data-pick]'), function(btn){
+        btn.onclick = function(){
+          var amb = ambs.find(function(a){ return String(a.id) === btn.getAttribute('data-pick'); });
+          setIdentity(amb);
+          loadShared().then(renderApp);
+        };
+      });
+    }
+    if (app.querySelector('#pk-search')) app.querySelector('#pk-search').oninput = draw;
+    draw();
   }
 
-  function doLogin(){
-    var name = document.getElementById('login-name').value.trim();
-    var pin = document.getElementById('login-pin').value.trim();
-    if (!name || !pin) { state.loginError = 'נא למלא שם וקוד כניסה'; renderLogin(); return; }
-    api('/login', {method:'POST', body: JSON.stringify({name:name, pin:pin})}).then(function(data){
-      setToken(data.token);
-      state.me = data.ambassador;
-      state.loginError = '';
-      loadShared().then(renderApp);
-    }).catch(function(e){
-      state.loginError = e.message;
-      renderLogin();
-    });
-  }
-
-  function doLogout(){
-    api('/logout', {method:'POST'}).catch(function(){}).then(function(){
-      setToken(null);
-      state.me = null;
-      renderLogin();
-    });
+  function switchIdentity(){
+    setIdentity(null);
+    boot();
   }
 
   // ===================== APP SHELL =====================
   function renderApp(){
     var app = document.getElementById('app');
     var tabs = [
-      {id:'mine', ic:'📋', label:'הרשימה שלי'},
-      {id:'unassigned', ic:'🕊️', label:'לא משויכים'},
+      {id:'mine', ic:'📋', label:'שלי'},
+      {id:'unassigned', ic:'🕊️', label:'פתוחים'},
+      {id:'all', ic:'📚', label:'הכל'},
+      {id:'candidates', ic:'🌟', label:'מועמדים'},
       {id:'add', ic:'➕', label:'הוספה'}
     ];
     if (state.me.isAdmin) tabs.push({id:'admin', ic:'⚙️', label:'ניהול'});
@@ -268,12 +273,12 @@
     app.innerHTML =
       '<div class="topbar">' +
         '<div><h1>ערב שותפות — חב"ד עפולה</h1><div class="sub">שלום, ' + esc(state.me.name) + (state.me.isAdmin ? ' <span class="badge">מנהל</span>' : '') + '</div></div>' +
-        '<div class="me"><button id="logout-btn">יציאה</button></div>' +
+        '<div class="me"><button id="switch-btn">🔄 החלף זהות</button></div>' +
       '</div>' +
       '<div class="content" id="content"></div>' +
       '<div class="tabbar" id="tabbar"></div>';
 
-    document.getElementById('logout-btn').onclick = doLogout;
+    document.getElementById('switch-btn').onclick = switchIdentity;
 
     var tabbar = document.getElementById('tabbar');
     tabbar.innerHTML = tabs.map(function(t){
@@ -287,67 +292,145 @@
     var content = document.getElementById('content');
     content.innerHTML = '<div class="spinner">טוען…</div>';
 
-    if (state.tab === 'mine') renderList(content, 'mine', 'הרשימה שלי');
-    else if (state.tab === 'unassigned') renderList(content, 'unassigned', 'לא משויכים');
+    if (state.tab === 'mine') renderContactList(content, {scope:'mine', title:'הרשימה שלי', emptyMsg:'עדיין אין אנשים ברשימה שלך. אפשר להוסיף מהלשונית "הוספה".'});
+    else if (state.tab === 'unassigned') renderContactList(content, {scope:'unassigned', title:'לא משויכים', emptyMsg:'כל הכבוד — אין כרגע אנשים שלא משויכים לשגריר.'});
+    else if (state.tab === 'all') renderContactList(content, {scope:'all', title:'כל הרשימה', emptyMsg:'הרשימה ריקה.'});
+    else if (state.tab === 'candidates') renderContactList(content, {scope:'candidates', title:'מועמדים לשגרירות', emptyMsg:'עדיין לא סומנו מועמדים לשגרירות. אפשר לסמן מתוך הכרטיס של כל איש קשר.'});
     else if (state.tab === 'add') renderAdd(content);
     else if (state.tab === 'admin') renderAdmin(content);
   }
 
-  // ===================== CONTACT LIST (mine / unassigned) =====================
-  function renderList(content, scope, title){
-    api('/contacts?scope=' + scope).then(function(contacts){
-      var filterCat = '', filterStatus = '';
-      function draw(){
-        var filtered = contacts.filter(function(c){
-          if (filterCat && (!c.category || c.category.name !== filterCat)) return false;
-          if (filterStatus && c.status !== filterStatus) return false;
+  // ===================== CONTACT LIST (שלי / פתוחים / הכל / מועמדים) =====================
+  // רכיב רשימה משותף לכל המסכים: חיפוש, מיון, סינון לפי קטגוריה/סטטוס/ללא-סיווג, ופעולות לפי הקשר
+  function renderContactList(content, opts){
+    Promise.all([
+      api('/contacts?scope=' + opts.scope),
+      (opts.scope === 'all' && state.me.isAdmin) ? api('/ambassadors').catch(function(){ return null; }) : Promise.resolve(null)
+    ]).then(function(res){
+      var contacts = res[0];
+      var assignAmbs = res[1];
+      var filters = {q:'', cat:'', status:'', uncategorized:false, sort:'newest'};
+
+      function getFiltered(){
+        var list = contacts.filter(function(c){
+          if (filters.q){
+            var q = filters.q.toLowerCase();
+            var hit = (c.name && c.name.toLowerCase().indexOf(q) > -1) || (c.phone && c.phone.indexOf(q) > -1);
+            if (!hit) return false;
+          }
+          if (filters.cat && !c.categories.some(function(x){ return x.name === filters.cat; })) return false;
+          if (filters.status && c.status !== filters.status) return false;
+          if (filters.uncategorized && c.categories.length) return false;
           return true;
         });
-        content.innerHTML =
-          '<div class="sec-title">' + title + ' <span class="count-pill">' + contacts.length + '</span></div>' +
-          (scope === 'mine' ? renderToolbar() : '') +
-          '<div id="list-body"></div>';
-
-        if (scope === 'mine'){
-          var catSel = content.querySelector('#f-cat');
-          var stSel = content.querySelector('#f-status');
-          if (catSel) catSel.onchange = function(){ filterCat = catSel.value; draw(); };
-          if (stSel) stSel.onchange = function(){ filterStatus = stSel.value; draw(); };
-          if (catSel) catSel.value = filterCat;
-          if (stSel) stSel.value = filterStatus;
-        }
-
-        var body = content.querySelector('#list-body');
-        if (!filtered.length){
-          body.innerHTML = '<div class="empty"><span class="emoji">🍃</span>' +
-            (scope === 'unassigned' ? 'כל הכבוד — אין כרגע אנשים שלא משויכים לשגריר.' : 'עדיין אין אנשים ברשימה שלך. אפשר להוסיף מהלשונית "הוספה".') +
-            '</div>';
-          return;
-        }
-        body.innerHTML = filtered.map(function(c){ return renderCard(c, scope); }).join('');
-        Array.prototype.forEach.call(body.querySelectorAll('[data-open]'), function(el){
-          el.onclick = function(){ openContact(el.getAttribute('data-open')); };
+        list.sort(function(a, b){
+          if (filters.sort === 'name') return a.name.localeCompare(b.name, 'he');
+          if (filters.sort === 'status') return (a.status || '').localeCompare(b.status || '', 'he');
+          return new Date(b.createdAt) - new Date(a.createdAt);
         });
-        Array.prototype.forEach.call(body.querySelectorAll('[data-claim]'), function(el){
-          el.onclick = function(ev){
-            ev.stopPropagation();
-            claimContact(el.getAttribute('data-claim'));
-          };
-        });
+        return list;
       }
 
-      function renderToolbar(){
-        var cats = uniqueCats(contacts);
-        var statuses = state.statuses;
-        return '<div class="toolbar">' +
+      var cats = uniqueCats(contacts);
+      content.innerHTML =
+        '<div class="sec-title">' + opts.title + ' <span class="count-pill" id="count-pill">' + contacts.length + '</span></div>' +
+        '<div class="toolbar">' +
+          '<input id="f-q" placeholder="חיפוש שם / טלפון">' +
+          '<select id="f-sort">' +
+            '<option value="newest">מיון: החדשים ביותר</option>' +
+            '<option value="name">מיון: לפי שם (א-ת)</option>' +
+            '<option value="status">מיון: לפי סטטוס</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="toolbar">' +
           '<select id="f-cat"><option value="">כל הקטגוריות</option>' +
             cats.map(function(c){ return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') +
           '</select>' +
           '<select id="f-status"><option value="">כל הסטטוסים</option>' +
-            statuses.map(function(s){ return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('') +
+            state.statuses.map(function(s){ return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('') +
           '</select>' +
-        '</div>';
+        '</div>' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);margin-bottom:12px">' +
+          '<input type="checkbox" id="f-uncat"> להציג רק אנשי קשר ללא סיווג</label>' +
+        '<div id="list-body"></div>';
+
+      function draw(){
+        var filtered = getFiltered();
+        content.querySelector('#count-pill').textContent = filtered.length === contacts.length ? contacts.length : (filtered.length + '/' + contacts.length);
+        var body = content.querySelector('#list-body');
+        if (!filtered.length){
+          body.innerHTML = '<div class="empty"><span class="emoji">🍃</span>' + esc(opts.emptyMsg || 'לא נמצאו תוצאות.') + '</div>';
+          return;
+        }
+        body.innerHTML = filtered.map(function(c){ return renderCard(c, opts, assignAmbs); }).join('');
+        wireCardActions(body);
       }
+
+      function wireCardActions(body){
+        Array.prototype.forEach.call(body.querySelectorAll('[data-open]'), function(el){
+          el.onclick = function(){ openContact(el.getAttribute('data-open')); };
+        });
+        Array.prototype.forEach.call(body.querySelectorAll('[data-del]'), function(el){
+          el.onclick = function(ev){
+            ev.stopPropagation();
+            var id = el.getAttribute('data-del');
+            var c = contacts.find(function(x){ return String(x.id) === id; });
+            if (!confirm('למחוק את "' + (c ? c.name : '') + '" מהרשימה? הפעולה בלתי הפיכה.')) return;
+            api('/contacts/' + id, {method:'DELETE'}).then(function(){
+              contacts = contacts.filter(function(x){ return String(x.id) !== id; });
+              draw();
+            }).catch(function(e){ alert(e.message); });
+          };
+        });
+        Array.prototype.forEach.call(body.querySelectorAll('[data-claim]'), function(el){
+          el.onclick = function(ev){
+            ev.stopPropagation();
+            var id = el.getAttribute('data-claim');
+            api('/contacts/' + id + '/claim', {method:'POST'}).then(function(){
+              contacts = contacts.filter(function(x){ return String(x.id) !== id; });
+              draw();
+            }).catch(function(e){ alert(e.message); });
+          };
+        });
+        Array.prototype.forEach.call(body.querySelectorAll('[data-cand-take]'), function(el){
+          el.onclick = function(ev){
+            ev.stopPropagation();
+            var id = el.getAttribute('data-cand-take');
+            api('/contacts/' + id + '/candidate', {method:'POST', body: JSON.stringify({candidate:true, owner:'me'})}).then(function(updated){
+              var idx = contacts.findIndex(function(x){ return String(x.id) === id; });
+              if (idx > -1) contacts[idx] = updated;
+              draw();
+            }).catch(function(e){ alert(e.message); });
+          };
+        });
+        Array.prototype.forEach.call(body.querySelectorAll('[data-cand-release]'), function(el){
+          el.onclick = function(ev){
+            ev.stopPropagation();
+            var id = el.getAttribute('data-cand-release');
+            api('/contacts/' + id + '/candidate', {method:'POST', body: JSON.stringify({candidate:true, owner:'open'})}).then(function(updated){
+              var idx = contacts.findIndex(function(x){ return String(x.id) === id; });
+              if (idx > -1) contacts[idx] = updated;
+              draw();
+            }).catch(function(e){ alert(e.message); });
+          };
+        });
+        Array.prototype.forEach.call(body.querySelectorAll('[data-assign]'), function(sel){
+          sel.onchange = function(){
+            var id = sel.getAttribute('data-assign');
+            api('/contacts/' + id + '/assign', {method:'POST', body: JSON.stringify({ambassadorId: sel.value ? parseInt(sel.value, 10) : null})})
+              .then(function(updated){
+                var idx = contacts.findIndex(function(x){ return String(x.id) === id; });
+                if (idx > -1) contacts[idx] = updated;
+              }).catch(function(e){ alert(e.message); });
+          };
+        });
+      }
+
+      content.querySelector('#f-q').oninput = function(e){ filters.q = e.target.value; draw(); };
+      content.querySelector('#f-sort').onchange = function(e){ filters.sort = e.target.value; draw(); };
+      content.querySelector('#f-cat').onchange = function(e){ filters.cat = e.target.value; draw(); };
+      content.querySelector('#f-status').onchange = function(e){ filters.status = e.target.value; draw(); };
+      content.querySelector('#f-uncat').onchange = function(e){ filters.uncategorized = e.target.checked; draw(); };
 
       draw();
     }).catch(function(e){
@@ -357,34 +440,48 @@
 
   function uniqueCats(contacts){
     var set = {};
-    contacts.forEach(function(c){ if (c.category) set[c.category.name] = true; });
+    contacts.forEach(function(c){ (c.categories || []).forEach(function(cat){ set[cat.name] = true; }); });
     return Object.keys(set).sort();
   }
 
-  function renderCard(c, scope){
+  function categoriesBadges(c){
+    if (!c.categories || !c.categories.length) return '<span class="badge-cat" style="color:#b45309;background:#fff7e6">ללא סיווג</span>';
+    return c.categories.map(function(cat){ return '<span class="badge-cat">' + esc(cat.name) + '</span>'; }).join('');
+  }
+
+  function renderCard(c, opts, assignAmbs){
     var statusBadge = c.status
       ? '<span class="badge-status" style="background:' + (STATUS_COLORS[c.status] || '#888') + '">' + esc(c.status) + '</span>'
       : '<span class="badge-cat" style="color:#b45309;background:#fff7e6">טרם נקבע סטטוס</span>';
-    return '<div class="card" ' + (scope === 'mine' ? 'data-open="' + c.id + '"' : '') + ' style="cursor:' + (scope === 'mine' ? 'pointer' : 'default') + '">' +
+    var ambBadge = (opts.scope === 'all' || opts.scope === 'candidates') && c.ambassador
+      ? '<span class="badge-amb">שגריר: ' + esc(c.ambassador.name) + '</span>' : '';
+    var candidateBadge = c.isAmbassadorCandidate ? '<span class="badge-amb">🌟 מועמד/ת לשגרירות</span>' : '';
+
+    var actionsHtml = '';
+    if (opts.scope === 'unassigned'){
+      actionsHtml = '<div class="card-actions"><button class="btn btn-gold btn-sm" data-claim="' + c.id + '">✋ קח לרשימה שלי</button></div>';
+    } else if (opts.scope === 'candidates'){
+      if (c.candidateOwner && c.candidateOwner.id === state.me.id){
+        actionsHtml = '<div class="card-actions"><button class="btn btn-outline btn-sm" data-cand-release="' + c.id + '">לוותר על האחריות</button></div>';
+      } else if (!c.candidateOwner){
+        actionsHtml = '<div class="card-actions"><button class="btn btn-gold btn-sm" data-cand-take="' + c.id + '">✋ אני לוקח אחריות</button></div>';
+      } else {
+        actionsHtml = '<div class="card-actions"><span class="hint">אחראי/ת: ' + esc(c.candidateOwner.name) + '</span></div>';
+      }
+    } else if (opts.scope === 'all' && state.me.isAdmin && assignAmbs){
+      actionsHtml = '<div class="field" style="margin-top:10px;margin-bottom:0"><label>שיוך לשגריר</label>' +
+        '<select data-assign="' + c.id + '"><option value="">— ללא שיוך —</option>' +
+        assignAmbs.map(function(a){ return '<option value="' + a.id + '" ' + (c.ambassador && c.ambassador.id === a.id ? 'selected' : '') + '>' + esc(a.name) + '</option>'; }).join('') +
+        '</select></div>';
+    }
+
+    return '<div class="card" data-open="' + c.id + '" style="cursor:pointer">' +
       '<div class="card-top"><div><div class="card-name">' + esc(c.name) + '</div>' +
       '<div class="card-meta">' + (c.phone ? '<a href="tel:' + esc(c.phone) + '" onclick="event.stopPropagation()">📞 ' + esc(c.phone) + '</a>' : '') + '</div>' +
-      '</div></div>' +
-      '<div class="badges">' +
-        (c.category ? '<span class="badge-cat">' + esc(c.category.name) + '</span>' : '') +
-        statusBadge +
-        (scope === 'unassigned' ? '' : '') +
-      '</div>' +
-      (scope === 'unassigned'
-        ? '<div class="card-actions"><button class="btn btn-gold btn-sm" data-claim="' + c.id + '">✋ קח לרשימה שלי</button>' +
-          '<button class="btn btn-outline btn-sm" data-open="' + c.id + '">היסטוריה</button></div>'
-        : '') +
+      '</div><button class="link-btn danger" data-del="' + c.id + '" title="מחיקה">🗑️</button></div>' +
+      '<div class="badges">' + categoriesBadges(c) + statusBadge + ambBadge + candidateBadge + '</div>' +
+      actionsHtml +
     '</div>';
-  }
-
-  function claimContact(id){
-    api('/contacts/' + id + '/claim', {method:'POST'}).then(function(){
-      renderApp();
-    }).catch(function(e){ alert(e.message); });
   }
 
   // ===================== CONTACT DETAIL MODAL =====================
@@ -395,97 +492,153 @@
     document.body.appendChild(overlay);
     overlay.onclick = function(e){ if (e.target === overlay) overlay.remove(); };
 
-    Promise.all([
-      api('/contacts?scope=all').catch(function(){ return null; }),
-      api('/contacts/' + id + '/history')
-    ]).then(function(results){
-      var history = results[1];
-      // מצא את הכרטיס המלא: קודם ב"אני", אחר כך ב"לא משויך", אחר כך אצל מנהל ב"הכל"
-      return findContact(id).then(function(contact){ return {contact: contact, history: history}; });
-    }).then(function(data){
-      drawSheet(overlay, data.contact, data.history);
+    Promise.all([findContact(id), api('/contacts/' + id + '/history')]).then(function(results){
+      drawSheet(overlay, results[0], results[1]);
     }).catch(function(e){
       overlay.querySelector('.sheet').innerHTML = '<div class="err">' + esc(e.message) + '</div>';
     });
   }
 
   function findContact(id){
-    var scopes = state.me.isAdmin ? ['all'] : ['mine', 'unassigned'];
-    return scopes.reduce(function(chain, scope){
-      return chain.then(function(found){
-        if (found) return found;
-        return api('/contacts?scope=' + scope).then(function(list){
-          return list.find(function(c){ return String(c.id) === String(id); }) || null;
-        });
-      });
-    }, Promise.resolve(null));
+    // scope=all פתוח לכולם — כך כל שגריר יכול לפתוח כל איש קשר מכל מסך
+    return api('/contacts?scope=all').then(function(list){
+      return list.find(function(c){ return String(c.id) === String(id); }) || null;
+    });
+  }
+
+  function renderCandidateSection(contact){
+    if (!contact.isAmbassadorCandidate){
+      return '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="btn btn-gold btn-sm" id="cand-mark-take">🌟 מועמד/ת + אני לוקח אחריות</button>' +
+        '<button class="btn btn-outline btn-sm" id="cand-mark-open">🌟 מועמד/ת + לשאול שגרירים אחרים</button>' +
+      '</div>';
+    }
+    var owner = contact.candidateOwner;
+    return '<div class="badges" style="margin-bottom:10px">' +
+        (owner ? '<span class="badge-amb">אחראי/ת: ' + esc(owner.name) + '</span>' : '<span class="badge-status" style="background:#7c3aed">פתוח — מי לוקח אחריות?</span>') +
+      '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        (owner && owner.id === state.me.id
+          ? '<button class="btn btn-outline btn-sm" id="cand-release">לוותר על האחריות</button>'
+          : (!owner ? '<button class="btn btn-gold btn-sm" id="cand-take">✋ אני לוקח אחריות</button>' : '')) +
+        '<button class="btn btn-outline btn-sm" id="cand-unmark">הסרת סימון מועמדות</button>' +
+      '</div>';
   }
 
   function drawSheet(overlay, contact, history){
-    var canEdit = state.me.isAdmin || (contact.ambassador && contact.ambassador.id === state.me.id);
     var sheet = overlay.querySelector('.sheet');
     var catList = state.categories.map(function(c){ return '<option value="' + esc(c.name) + '">'; }).join('');
+    var cats = contact.categories || [];
 
     sheet.innerHTML =
       '<div class="sheet-head"><h3>' + esc(contact.name) + '</h3><button class="close-x" id="sh-close">✕</button></div>' +
 
-      (canEdit ? (
-        '<div class="field"><label>שם</label><input id="e-name" value="' + esc(contact.name) + '"></div>' +
-        '<div class="form-row2">' +
-          '<div class="field"><label>טלפון</label><input id="e-phone" type="tel" value="' + esc(contact.phone || '') + '"></div>' +
-          '<div class="field"><label>קטגוריה</label><input id="e-cat" list="cat-dl" value="' + esc(contact.category ? contact.category.name : '') + '"></div>' +
-        '</div>' +
-        '<datalist id="cat-dl">' + catList + '</datalist>' +
-        '<div class="field"><label>הערות</label><textarea id="e-notes">' + esc(contact.notes || '') + '</textarea></div>' +
-        '<button class="btn btn-primary" id="sh-save">💾 שמירת פרטים</button>' +
-        '<hr class="divider">' +
-        '<div class="sec-title" style="margin-bottom:8px">עדכון סטטוס</div>' +
-        '<div class="status-grid">' + state.statuses.map(function(s){
-          var sel = contact.status === s;
-          return '<button class="status-opt ' + (sel ? 'sel' : '') + '" data-status="' + esc(s) + '">' +
-            '<span>' + esc(s) + '</span><span class="dot" style="background:' + STATUS_COLORS[s] + '"></span></button>';
-        }).join('') + '</div>'
-      ) : (
-        '<div class="badges" style="margin-bottom:10px">' +
-          (contact.category ? '<span class="badge-cat">' + esc(contact.category.name) + '</span>' : '') +
-          (contact.status ? '<span class="badge-status" style="background:' + (STATUS_COLORS[contact.status]||'#888') + '">' + esc(contact.status) + '</span>' : '') +
-        '</div>' +
-        (contact.phone ? '<p><a href="tel:' + esc(contact.phone) + '">📞 ' + esc(contact.phone) + '</a></p>' : '') +
-        (contact.notes ? '<p>' + esc(contact.notes) + '</p>' : '')
-      )) +
+      '<div class="field"><label>שם</label><input id="e-name" value="' + esc(contact.name) + '"></div>' +
+      '<div class="field"><label>טלפון</label><input id="e-phone" type="tel" value="' + esc(contact.phone || '') + '"></div>' +
+      '<div class="field"><label>הערות</label><textarea id="e-notes">' + esc(contact.notes || '') + '</textarea></div>' +
+      '<button class="btn btn-primary" id="sh-save">💾 שמירת פרטים</button>' +
+
+      '<hr class="divider">' +
+      '<div class="sec-title" style="margin-bottom:8px">סיווגים</div>' +
+      '<div class="badges" style="margin-bottom:10px">' +
+        (cats.length ? cats.map(function(cat){
+          return '<span class="badge-cat">' + esc(cat.name) + ' <a href="#" data-rmcat="' + cat.id + '" style="color:var(--danger);text-decoration:none;margin-inline-start:4px">✕</a></span>';
+        }).join('') : '<span class="hint">אין עדיין סיווג</span>') +
+      '</div>' +
+      '<div style="display:flex;gap:8px;margin-bottom:16px">' +
+        '<input id="cat-add-input" list="cat-dl" placeholder="הוספת סיווג…" style="flex:1;padding:9px 10px;border:1.5px solid var(--border);border-radius:9px;background:#fbfbfc">' +
+        '<button class="btn btn-outline btn-sm" id="cat-add-btn">הוספה</button>' +
+      '</div>' +
+      '<datalist id="cat-dl">' + catList + '</datalist>' +
+
+      '<hr class="divider">' +
+      '<div class="sec-title" style="margin-bottom:8px">עדכון סטטוס</div>' +
+      '<div class="status-grid">' + state.statuses.map(function(s){
+        var sel = contact.status === s;
+        return '<button class="status-opt ' + (sel ? 'sel' : '') + '" data-status="' + esc(s) + '">' +
+          '<span>' + esc(s) + '</span><span class="dot" style="background:' + STATUS_COLORS[s] + '"></span></button>';
+      }).join('') + '</div>' +
 
       (contact.ambassador ? '<div class="hint">שגריר אחראי: ' + esc(contact.ambassador.name) + '</div>' : '<div class="hint">לא משויך לשגריר</div>') +
 
       '<hr class="divider">' +
+      '<div class="sec-title" style="margin-bottom:8px">מועמד/ת לשגרירות?</div>' +
+      renderCandidateSection(contact) +
+
+      '<hr class="divider">' +
       '<div class="sec-title" style="margin-bottom:8px">היסטוריית סטטוסים</div>' +
-      renderTimeline(history);
+      renderTimeline(history) +
+
+      '<hr class="divider">' +
+      '<button class="btn btn-danger" id="sh-delete" style="width:100%">🗑️ מחיקת איש קשר מהרשימה</button>';
 
     sheet.querySelector('#sh-close').onclick = function(){ overlay.remove(); };
 
-    if (canEdit){
-      sheet.querySelector('#sh-save').onclick = function(){
-        var payload = {
-          name: sheet.querySelector('#e-name').value.trim(),
-          phone: sheet.querySelector('#e-phone').value.trim(),
-          category: sheet.querySelector('#e-cat').value.trim(),
-          notes: sheet.querySelector('#e-notes').value.trim()
-        };
-        api('/contacts/' + contact.id, {method:'PATCH', body: JSON.stringify(payload)}).then(function(){
+    sheet.querySelector('#sh-save').onclick = function(){
+      var payload = {
+        name: sheet.querySelector('#e-name').value.trim(),
+        phone: sheet.querySelector('#e-phone').value.trim(),
+        notes: sheet.querySelector('#e-notes').value.trim()
+      };
+      api('/contacts/' + contact.id, {method:'PATCH', body: JSON.stringify(payload)}).then(function(){
+        overlay.remove();
+        renderApp();
+      }).catch(function(e){ alert(e.message); });
+    };
+
+    function submitCategories(newNames){
+      api('/contacts/' + contact.id + '/categories', {method:'POST', body: JSON.stringify({categories:newNames})}).then(function(updated){
+        loadShared().then(function(){ drawSheet(overlay, updated, history); });
+      }).catch(function(e){ alert(e.message); });
+    }
+    Array.prototype.forEach.call(sheet.querySelectorAll('[data-rmcat]'), function(a){
+      a.onclick = function(ev){
+        ev.preventDefault();
+        var id = a.getAttribute('data-rmcat');
+        submitCategories(cats.filter(function(c){ return String(c.id) !== id; }).map(function(c){ return c.name; }));
+      };
+    });
+    sheet.querySelector('#cat-add-btn').onclick = function(){
+      var v = sheet.querySelector('#cat-add-input').value.trim();
+      if (!v) return;
+      var names = cats.map(function(c){ return c.name; });
+      if (names.indexOf(v) === -1) names.push(v);
+      submitCategories(names);
+    };
+    sheet.querySelector('#cat-add-input').addEventListener('keydown', function(e){
+      if (e.key === 'Enter'){ e.preventDefault(); sheet.querySelector('#cat-add-btn').click(); }
+    });
+
+    Array.prototype.forEach.call(sheet.querySelectorAll('[data-status]'), function(btn){
+      btn.onclick = function(){
+        var status = btn.getAttribute('data-status');
+        api('/contacts/' + contact.id + '/status', {method:'POST', body: JSON.stringify({status:status})}).then(function(){
           overlay.remove();
-          state.categories = state.categories; // will refresh below
-          loadShared().then(renderApp);
+          renderApp();
         }).catch(function(e){ alert(e.message); });
       };
-      Array.prototype.forEach.call(sheet.querySelectorAll('[data-status]'), function(btn){
-        btn.onclick = function(){
-          var status = btn.getAttribute('data-status');
-          api('/contacts/' + contact.id + '/status', {method:'POST', body: JSON.stringify({status:status})}).then(function(){
-            overlay.remove();
-            renderApp();
-          }).catch(function(e){ alert(e.message); });
-        };
-      });
+    });
+
+    function candidateCall(body){
+      api('/contacts/' + contact.id + '/candidate', {method:'POST', body: JSON.stringify(body)}).then(function(){
+        overlay.remove();
+        renderApp();
+      }).catch(function(e){ alert(e.message); });
     }
+    var el;
+    if ((el = sheet.querySelector('#cand-mark-take'))) el.onclick = function(){ candidateCall({candidate:true, owner:'me'}); };
+    if ((el = sheet.querySelector('#cand-mark-open'))) el.onclick = function(){ candidateCall({candidate:true, owner:'open'}); };
+    if ((el = sheet.querySelector('#cand-take'))) el.onclick = function(){ candidateCall({candidate:true, owner:'me'}); };
+    if ((el = sheet.querySelector('#cand-release'))) el.onclick = function(){ candidateCall({candidate:true, owner:'open'}); };
+    if ((el = sheet.querySelector('#cand-unmark'))) el.onclick = function(){ candidateCall({candidate:false}); };
+
+    sheet.querySelector('#sh-delete').onclick = function(){
+      if (!confirm('למחוק את "' + contact.name + '" מהרשימה? הפעולה בלתי הפיכה (כולל היסטוריית הסטטוסים).')) return;
+      api('/contacts/' + contact.id, {method:'DELETE'}).then(function(){
+        overlay.remove();
+        renderApp();
+      }).catch(function(e){ alert(e.message); });
+    };
   }
 
   function renderTimeline(history){
@@ -509,14 +662,11 @@
     content.innerHTML =
       '<div class="sec-title">הוספת איש קשר חדש</div>' +
       '<div class="field"><label>שם מלא *</label><input id="a-name"></div>' +
-      '<div class="form-row2">' +
-        '<div class="field"><label>טלפון</label><input id="a-phone" type="tel"></div>' +
-        '<div class="field"><label>קטגוריה</label><input id="a-cat" list="cat-dl2"></div>' +
-      '</div>' +
+      '<div class="field"><label>טלפון</label><input id="a-phone" type="tel"></div>' +
+      '<div class="field"><label>סיווג (אפשר כמה, מופרד בפסיק)</label><input id="a-cat" list="cat-dl2" placeholder="לדוגמה: קהילה, הורה בית ספר"></div>' +
       '<datalist id="cat-dl2">' + catList + '</datalist>' +
       '<div class="field"><label>הערות</label><textarea id="a-notes"></textarea></div>' +
       (state.me.isAdmin ? '<div class="field" id="a-amb-wrap"><label>שיוך לשגריר</label><select id="a-amb"><option value="">אני (' + esc(state.me.name) + ')</option><option value="none">ללא שיוך — לרשימה הכללית</option></select></div>' : '') +
-      (state.loginError ? '' : '') +
       '<div id="a-msg"></div>' +
       '<button class="btn btn-primary" id="a-submit">➕ הוספה לרשימה</button>' +
       '<div class="hint">איש קשר חדש שתוסיפו ישויך אוטומטית אליכם, אלא אם תבחרו אחרת.</div>';
@@ -540,7 +690,7 @@
       var payload = {
         name: name,
         phone: content.querySelector('#a-phone').value.trim(),
-        category: content.querySelector('#a-cat').value.trim(),
+        categories: content.querySelector('#a-cat').value.trim(),
         notes: content.querySelector('#a-notes').value.trim()
       };
       if (state.me.isAdmin){
@@ -567,9 +717,9 @@
       '<div class="admin-tabs">' +
         '<button data-at="ambassadors" class="' + (state.adminTab==='ambassadors'?'active':'') + '">שגרירים</button>' +
         '<button data-at="categories" class="' + (state.adminTab==='categories'?'active':'') + '">קטגוריות</button>' +
-        '<button data-at="all" class="' + (state.adminTab==='all'?'active':'') + '">כל אנשי הקשר</button>' +
         '<button data-at="import" class="' + (state.adminTab==='import'?'active':'') + '">ייבוא</button>' +
       '</div>' +
+      '<div class="hint" style="margin-bottom:12px">לצפייה בכל אנשי הקשר ולשיוך מחדש לשגריר — לשונית "הכל" בתפריט התחתון.</div>' +
       '<div id="admin-body"><div class="spinner">טוען…</div></div>';
 
     Array.prototype.forEach.call(content.querySelectorAll('[data-at]'), function(btn){
@@ -579,40 +729,29 @@
     var body = content.querySelector('#admin-body');
     if (state.adminTab === 'ambassadors') renderAdminAmbassadors(body);
     else if (state.adminTab === 'categories') renderAdminCategories(body);
-    else if (state.adminTab === 'all') renderAdminAllContacts(body);
     else if (state.adminTab === 'import') renderAdminImport(body);
   }
 
   function renderAdminAmbassadors(body){
     api('/ambassadors').then(function(ambs){
+      state.ambassadors = ambs;
       body.innerHTML =
         '<table class="simple"><thead><tr><th>שם</th><th>טלפון</th><th>אנשי קשר</th><th>מנהל</th><th></th></tr></thead><tbody>' +
         ambs.map(function(a){
           return '<tr><td>' + esc(a.name) + '</td><td>' + esc(a.phone || '—') + '</td><td>' + a.contactCount + '</td>' +
             '<td>' + (a.isAdmin ? '✔️' : '') + '</td>' +
-            '<td><button class="link-btn" data-reset="' + a.id + '">איפוס קוד</button> ' +
-            (a.id !== state.me.id ? '<button class="link-btn danger" data-del="' + a.id + '">מחיקה</button>' : '') + '</td></tr>';
+            '<td>' + (a.id !== state.me.id ? '<button class="link-btn danger" data-del="' + a.id + '">מחיקה</button>' : '') + '</td></tr>';
         }).join('') + '</tbody></table>' +
         '<hr class="divider">' +
         '<div class="sec-title">הוספת שגריר חדש</div>' +
         '<div class="field"><label>שם *</label><input id="na-name"></div>' +
-        '<div class="form-row2">' +
-          '<div class="field"><label>טלפון</label><input id="na-phone" type="tel"></div>' +
-          '<div class="field"><label>קוד כניסה *</label><input id="na-pin" type="tel" inputmode="numeric"></div>' +
-        '</div>' +
+        '<div class="field"><label>טלפון</label><input id="na-phone" type="tel"></div>' +
         '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:12px">' +
           '<input type="checkbox" id="na-admin"> הרשאת מנהל</label>' +
         '<div id="na-msg"></div>' +
-        '<button class="btn btn-gold" id="na-submit">➕ הוספת שגריר</button>';
+        '<button class="btn btn-gold" id="na-submit">➕ הוספת שגריר</button>' +
+        '<div class="hint">אין קוד כניסה — מוסיפים שם ומיד אפשר לבחור אותו ממסך "מי אתה?".</div>';
 
-      Array.prototype.forEach.call(body.querySelectorAll('[data-reset]'), function(btn){
-        btn.onclick = function(){
-          var pin = prompt('קוד כניסה חדש:');
-          if (!pin) return;
-          api('/ambassadors/' + btn.getAttribute('data-reset'), {method:'PATCH', body: JSON.stringify({pin:pin})})
-            .then(function(){ alert('הקוד עודכן'); }).catch(function(e){ alert(e.message); });
-        };
-      });
       Array.prototype.forEach.call(body.querySelectorAll('[data-del]'), function(btn){
         btn.onclick = function(){
           if (!confirm('למחוק שגריר זה? אנשי הקשר שלו יעברו ל"לא משויכים".')) return;
@@ -622,13 +761,11 @@
       });
       body.querySelector('#na-submit').onclick = function(){
         var name = body.querySelector('#na-name').value.trim();
-        var pin = body.querySelector('#na-pin').value.trim();
         var msg = body.querySelector('#na-msg');
-        if (!name || !pin){ msg.innerHTML = '<div class="err">יש להזין שם וקוד כניסה</div>'; return; }
+        if (!name){ msg.innerHTML = '<div class="err">יש להזין שם</div>'; return; }
         api('/ambassadors', {method:'POST', body: JSON.stringify({
           name: name,
           phone: body.querySelector('#na-phone').value.trim(),
-          pin: pin,
           isAdmin: body.querySelector('#na-admin').checked
         })}).then(function(){
           renderAdminAmbassadors(body);
@@ -670,55 +807,12 @@
     reload();
   }
 
-  function renderAdminAllContacts(body){
-    Promise.all([api('/contacts?scope=all'), api('/ambassadors')]).then(function(res){
-      var contacts = res[0], ambs = res[1];
-      body.innerHTML =
-        '<div class="toolbar"><input id="ac-search" placeholder="חיפוש לפי שם / טלפון"></div>' +
-        '<div id="ac-list"></div>';
-      function draw(){
-        var q = body.querySelector('#ac-search').value.trim().toLowerCase();
-        var filtered = contacts.filter(function(c){
-          if (!q) return true;
-          return (c.name && c.name.toLowerCase().indexOf(q) > -1) || (c.phone && c.phone.indexOf(q) > -1);
-        });
-        var listEl = body.querySelector('#ac-list');
-        if (!filtered.length){ listEl.innerHTML = '<div class="empty">לא נמצאו תוצאות.</div>'; return; }
-        listEl.innerHTML = filtered.map(function(c){
-          var statusBadge = c.status ? '<span class="badge-status" style="background:' + (STATUS_COLORS[c.status]||'#888') + '">' + esc(c.status) + '</span>' : '';
-          return '<div class="card">' +
-            '<div class="card-top"><div><div class="card-name" style="cursor:pointer" data-open="' + c.id + '">' + esc(c.name) + '</div>' +
-            '<div class="card-meta">' + (c.phone ? esc(c.phone) : '') + '</div></div></div>' +
-            '<div class="badges">' + (c.category ? '<span class="badge-cat">' + esc(c.category.name) + '</span>' : '') + statusBadge + '</div>' +
-            '<div class="field" style="margin-top:10px;margin-bottom:0"><label>שיוך לשגריר</label>' +
-            '<select data-assign="' + c.id + '"><option value="">— ללא שיוך —</option>' +
-            ambs.map(function(a){ return '<option value="' + a.id + '" ' + (c.ambassador && c.ambassador.id === a.id ? 'selected' : '') + '>' + esc(a.name) + '</option>'; }).join('') +
-            '</select></div>' +
-          '</div>';
-        }).join('');
-        Array.prototype.forEach.call(listEl.querySelectorAll('[data-open]'), function(el){
-          el.onclick = function(){ openContact(el.getAttribute('data-open')); };
-        });
-        Array.prototype.forEach.call(listEl.querySelectorAll('[data-assign]'), function(sel){
-          sel.onchange = function(){
-            api('/contacts/' + sel.getAttribute('data-assign') + '/assign', {method:'POST', body: JSON.stringify({ambassadorId: sel.value ? parseInt(sel.value,10) : null})})
-              .then(function(updated){
-                var idx = contacts.findIndex(function(c){ return c.id === updated.id; });
-                if (idx > -1) contacts[idx] = updated;
-              }).catch(function(e){ alert(e.message); });
-          };
-        });
-      }
-      body.querySelector('#ac-search').oninput = draw;
-      draw();
-    }).catch(function(e){ body.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
-  }
-
   function renderAdminImport(body){
     body.innerHTML =
       '<div class="sec-title">ייבוא רשימה מרוכז</div>' +
       '<div class="hint">הדביקו כאן שורות מתוך אקסל / Google Sheets (כל שורה = איש קשר אחד, מופרד בטאבים):<br>' +
-      '<b>שם [טאב] טלפון [טאב] קטגוריה [טאב] שם שגריר (אופציונלי)</b><br>' +
+      '<b>שם [טאב] טלפון [טאב] קטגוריה/ות [טאב] שם שגריר (אופציונלי)</b><br>' +
+      'אפשר כמה קטגוריות באותה שורה, מופרדות בפסיק (לדוגמה: "קהילה, הורה בית ספר").<br>' +
       'אם לא צויין שגריר — איש הקשר יכנס לרשימה הכללית הלא-משויכת.</div>' +
       '<div class="field"><textarea id="imp-text" rows="8" placeholder="ישראל ישראלי	0501234567	הורה בית ספר	דוד כהן"></textarea></div>' +
       '<button class="btn btn-primary" id="imp-submit">📥 ייבוא</button>' +

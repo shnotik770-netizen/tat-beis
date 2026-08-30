@@ -1,6 +1,5 @@
 const express = require('express');
 const { pool } = require('./db');
-const { hashPin, verifyPin, generateToken } = require('./auth');
 const STATUSES = require('./statuses');
 
 const router = express.Router();
@@ -10,25 +9,18 @@ function ah(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
-// --- session middleware ---
+// אין מסך התחברות: כל בקשה מזהה "מי אני" לפי כותרת x-ambassador-id
+// (הבחירה מי אתה נעשית פעם אחת בלקוח מתוך רשימת השגרירים, ונשמרת שם)
 router.use(ah(async (req, res, next) => {
-  const token = req.headers['x-auth-token'];
-  if (!token) return next();
-  const { rows } = await pool.query(
-    `SELECT a.id, a.name, a.phone, a.is_admin FROM sessions s
-     JOIN ambassadors a ON a.id = s.ambassador_id
-     WHERE s.token = $1`,
-    [token]
-  );
-  if (rows[0]) {
-    req.ambassador = rows[0];
-    req.token = token;
-  }
+  const id = req.headers['x-ambassador-id'];
+  if (!id) return next();
+  const { rows } = await pool.query('SELECT id, name, phone, is_admin FROM ambassadors WHERE id = $1', [id]);
+  if (rows[0]) req.ambassador = rows[0];
   next();
 }));
 
 function requireAuth(req, res, next) {
-  if (!req.ambassador) return res.status(401).json({ error: 'נדרשת התחברות' });
+  if (!req.ambassador) return res.status(400).json({ error: 'יש לבחור זהות ("מי אתה") לפני שממשיכים' });
   next();
 }
 
@@ -38,42 +30,6 @@ function requireAdmin(req, res, next) {
 }
 
 router.get('/statuses', (req, res) => res.json(STATUSES));
-
-// --- auth ---
-router.post('/login', ah(async (req, res) => {
-  const { name, pin } = req.body || {};
-  if (!name || !pin) return res.status(400).json({ error: 'יש להזין שם וקוד כניסה' });
-  const { rows } = await pool.query('SELECT * FROM ambassadors WHERE lower(name) = lower($1)', [String(name).trim()]);
-  const amb = rows[0];
-  if (!amb || !verifyPin(pin, amb.pin_hash)) {
-    return res.status(401).json({ error: 'שם או קוד כניסה שגויים' });
-  }
-  const token = generateToken();
-  await pool.query('INSERT INTO sessions (token, ambassador_id) VALUES ($1, $2)', [token, amb.id]);
-  res.json({ token, ambassador: { id: amb.id, name: amb.name, phone: amb.phone, isAdmin: amb.is_admin } });
-}));
-
-router.post('/logout', requireAuth, ah(async (req, res) => {
-  await pool.query('DELETE FROM sessions WHERE token = $1', [req.token]);
-  res.json({ ok: true });
-}));
-
-router.get('/me', requireAuth, (req, res) => {
-  res.json({ id: req.ambassador.id, name: req.ambassador.name, phone: req.ambassador.phone, isAdmin: req.ambassador.is_admin });
-});
-
-router.patch('/me', requireAuth, ah(async (req, res) => {
-  const { pin, phone } = req.body || {};
-  const updates = [];
-  const values = [];
-  let i = 1;
-  if (pin) { updates.push(`pin_hash = $${i++}`); values.push(hashPin(pin)); }
-  if (phone !== undefined) { updates.push(`phone = $${i++}`); values.push(phone); }
-  if (!updates.length) return res.json({ ok: true });
-  values.push(req.ambassador.id);
-  await pool.query(`UPDATE ambassadors SET ${updates.join(', ')} WHERE id = $${i}`, values);
-  res.json({ ok: true });
-}));
 
 // --- categories ---
 router.get('/categories', requireAuth, ah(async (req, res) => {
@@ -98,45 +54,70 @@ router.delete('/categories/:id', requireAdmin, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-async function resolveCategoryId(name) {
-  if (!name || !String(name).trim()) return null;
-  const trimmed = String(name).trim();
-  const { rows } = await pool.query(
-    `INSERT INTO categories (name) VALUES ($1)
-     ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-     RETURNING id`,
-    [trimmed]
-  );
-  return rows[0].id;
+// מנרמל קלט סיווגים (מחרוזת יחידה, מחרוזת מופרדת בפסיקים, או מערך) לרשימת מזהי קטגוריה,
+// תוך יצירת קטגוריות חדשות לפי הצורך
+async function resolveCategoryIds(input) {
+  let names = [];
+  if (Array.isArray(input)) names = input;
+  else if (typeof input === 'string') names = input.split(',');
+  names = names.map(n => String(n || '').trim()).filter(Boolean);
+  const uniqueNames = [...new Set(names)];
+  const ids = [];
+  for (const name of uniqueNames) {
+    const { rows } = await pool.query(
+      `INSERT INTO categories (name) VALUES ($1)
+       ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [name]
+    );
+    ids.push(rows[0].id);
+  }
+  return ids;
+}
+
+async function setContactCategories(contactId, categoryIds) {
+  await pool.query('DELETE FROM contact_categories WHERE contact_id = $1', [contactId]);
+  for (const categoryId of categoryIds) {
+    await pool.query(
+      'INSERT INTO contact_categories (contact_id, category_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [contactId, categoryId]
+    );
+  }
 }
 
 const CONTACT_SELECT = `
   SELECT c.id, c.name, c.phone, c.notes, c.status, c.created_at, c.updated_at,
-         cat.id AS category_id, cat.name AS category_name,
+         c.ambassador_candidate, cand.id AS candidate_owner_id, cand.name AS candidate_owner_name,
          amb.id AS ambassador_id, amb.name AS ambassador_name,
-         creator.name AS created_by_name
+         creator.name AS created_by_name,
+         COALESCE((
+           SELECT json_agg(json_build_object('id', cat.id, 'name', cat.name) ORDER BY cat.name)
+           FROM contact_categories cc JOIN categories cat ON cat.id = cc.category_id
+           WHERE cc.contact_id = c.id
+         ), '[]') AS categories
   FROM contacts c
-  LEFT JOIN categories cat ON cat.id = c.category_id
   LEFT JOIN ambassadors amb ON amb.id = c.ambassador_id
   LEFT JOIN ambassadors creator ON creator.id = c.created_by
+  LEFT JOIN ambassadors cand ON cand.id = c.candidate_owner_id
 `;
 
 function shapeContact(r) {
   return {
     id: r.id, name: r.name, phone: r.phone, notes: r.notes, status: r.status,
     createdAt: r.created_at, updatedAt: r.updated_at,
-    category: r.category_id ? { id: r.category_id, name: r.category_name } : null,
+    categories: r.categories || [],
     ambassador: r.ambassador_id ? { id: r.ambassador_id, name: r.ambassador_name } : null,
-    createdBy: r.created_by_name || null
+    createdBy: r.created_by_name || null,
+    isAmbassadorCandidate: r.ambassador_candidate,
+    candidateOwner: r.candidate_owner_id ? { id: r.candidate_owner_id, name: r.candidate_owner_name } : null
   };
 }
 
 // --- contacts ---
+// scope=all פתוח לכולם — כל שגריר יכול לעבור על הרשימה המלאה ולסווג/לראות הכל.
+// שיוך מחדש לשגריר (assign) והוספה/מחיקה של שגרירים נשארים בהרשאת מנהל בלבד.
 router.get('/contacts', requireAuth, ah(async (req, res) => {
   const scope = req.query.scope || 'mine';
-  if (scope === 'all' && !req.ambassador.is_admin) {
-    return res.status(403).json({ error: 'צפייה ברשימה המלאה מיועדת למנהל בלבד' });
-  }
   let query = CONTACT_SELECT;
   let params = [];
   if (scope === 'mine') {
@@ -144,8 +125,13 @@ router.get('/contacts', requireAuth, ah(async (req, res) => {
     params = [req.ambassador.id];
   } else if (scope === 'unassigned') {
     query += ' WHERE c.ambassador_id IS NULL';
+  } else if (scope === 'candidates') {
+    query += ' WHERE c.ambassador_candidate = TRUE';
   } else if (scope !== 'all') {
     return res.status(400).json({ error: 'scope לא תקין' });
+  }
+  if (req.query.uncategorized === '1') {
+    query += (params.length ? ' AND ' : ' WHERE ') + 'NOT EXISTS (SELECT 1 FROM contact_categories cc WHERE cc.contact_id = c.id)';
   }
   query += ' ORDER BY c.created_at DESC';
   const { rows } = await pool.query(query, params);
@@ -153,24 +139,25 @@ router.get('/contacts', requireAuth, ah(async (req, res) => {
 }));
 
 router.post('/contacts', requireAuth, ah(async (req, res) => {
-  const { name, phone, notes, category, ambassadorId } = req.body || {};
+  const { name, phone, notes, categories, ambassadorId } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'יש להזין שם' });
-  const categoryId = await resolveCategoryId(category);
   let assignTo = req.ambassador.id;
   if (ambassadorId !== undefined) {
     if (!req.ambassador.is_admin) return res.status(403).json({ error: 'רק מנהל יכול לשייך לשגריר אחר' });
     assignTo = ambassadorId || null;
   }
   const { rows } = await pool.query(
-    `INSERT INTO contacts (name, phone, notes, category_id, ambassador_id, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [name.trim(), phone || null, notes || null, categoryId, assignTo, req.ambassador.id]
+    `INSERT INTO contacts (name, phone, notes, ambassador_id, created_by)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [name.trim(), phone || null, notes || null, assignTo, req.ambassador.id]
   );
+  const categoryIds = await resolveCategoryIds(categories);
+  if (categoryIds.length) await setContactCategories(rows[0].id, categoryIds);
   const { rows: full } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [rows[0].id]);
   res.status(201).json(shapeContact(full[0]));
 }));
 
-// ייבוא מרוכז — למנהל בלבד: מדביקים הרבה שורות בבת אחת (שם / טלפון / קטגוריה / שגריר-אופציונלי)
+// ייבוא מרוכז — למנהל בלבד: מדביקים הרבה שורות בבת אחת (שם / טלפון / קטגוריה (אפשר כמה, מופרד בפסיק) / שגריר-אופציונלי)
 router.post('/contacts/bulk-import', requireAdmin, ah(async (req, res) => {
   const { rows } = req.body || {};
   if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: 'לא נשלחו שורות לייבוא' });
@@ -186,45 +173,50 @@ router.post('/contacts/bulk-import', requireAdmin, ah(async (req, res) => {
       if (!found) { results.push({ name, ok: false, error: `שגריר "${r.ambassador}" לא נמצא` }); continue; }
       ambassadorId = found;
     }
-    const categoryId = await resolveCategoryId(r.category);
     const inserted = await pool.query(
-      `INSERT INTO contacts (name, phone, notes, category_id, ambassador_id, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [name, r.phone || null, r.notes || null, categoryId, ambassadorId, req.ambassador.id]
+      `INSERT INTO contacts (name, phone, notes, ambassador_id, created_by)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [name, r.phone || null, r.notes || null, ambassadorId, req.ambassador.id]
     );
+    const categoryIds = await resolveCategoryIds(r.category);
+    if (categoryIds.length) await setContactCategories(inserted.rows[0].id, categoryIds);
     results.push({ name, ok: true, id: inserted.rows[0].id });
   }
   res.json({ results, added: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length });
 }));
 
+// כל שגריר מחובר יכול לערוך כל איש קשר (לא רק את שלו) — עדכון פרטים/סטטוס/מחיקה
+// הם חלק מתחזוקת הרשימה המשותפת, בדיוק כמו סיווג וסימון מועמדים לשגרירות.
 async function loadContactForEdit(req, res, next) {
   const { rows } = await pool.query('SELECT * FROM contacts WHERE id = $1', [req.params.id]);
-  const contact = rows[0];
-  if (!contact) return res.status(404).json({ error: 'איש קשר לא נמצא' });
-  if (!req.ambassador.is_admin && contact.ambassador_id !== req.ambassador.id) {
-    return res.status(403).json({ error: 'אין הרשאה לערוך איש קשר זה' });
-  }
-  req.contact = contact;
+  if (!rows[0]) return res.status(404).json({ error: 'איש קשר לא נמצא' });
+  req.contact = rows[0];
   next();
 }
 
 router.patch('/contacts/:id', requireAuth, ah(loadContactForEdit), ah(async (req, res) => {
-  const { name, phone, notes, category } = req.body || {};
+  const { name, phone, notes } = req.body || {};
   const updates = [];
   const values = [];
   let i = 1;
   if (name !== undefined) { updates.push(`name = $${i++}`); values.push(name.trim()); }
   if (phone !== undefined) { updates.push(`phone = $${i++}`); values.push(phone); }
   if (notes !== undefined) { updates.push(`notes = $${i++}`); values.push(notes); }
-  if (category !== undefined) {
-    const categoryId = await resolveCategoryId(category);
-    updates.push(`category_id = $${i++}`); values.push(categoryId);
-  }
   if (updates.length) {
     updates.push('updated_at = now()');
     values.push(req.params.id);
     await pool.query(`UPDATE contacts SET ${updates.join(', ')} WHERE id = $${i}`, values);
   }
+  const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);
+  res.json(shapeContact(rows[0]));
+}));
+
+// עדכון סיווגים פתוח לכולם — כל שגריר יכול לעבור על הרשימה ולסווג כל איש קשר, לא רק את שלו
+router.post('/contacts/:id/categories', requireAuth, ah(async (req, res) => {
+  const categoryIds = await resolveCategoryIds(req.body && req.body.categories);
+  const { rowCount } = await pool.query('SELECT 1 FROM contacts WHERE id = $1', [req.params.id]);
+  if (!rowCount) return res.status(404).json({ error: 'איש קשר לא נמצא' });
+  await setContactCategories(req.params.id, categoryIds);
   const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);
   res.json(shapeContact(rows[0]));
 }));
@@ -256,13 +248,38 @@ router.post('/contacts/:id/status', requireAuth, ah(loadContactForEdit), ah(asyn
   res.json(shapeContact(rows[0]));
 }));
 
-router.get('/contacts/:id/history', requireAuth, ah(async (req, res) => {
-  const { rows: crows } = await pool.query('SELECT * FROM contacts WHERE id = $1', [req.params.id]);
-  const contact = crows[0];
-  if (!contact) return res.status(404).json({ error: 'איש קשר לא נמצא' });
-  if (!req.ambassador.is_admin && contact.ambassador_id !== req.ambassador.id) {
-    return res.status(403).json({ error: 'אין הרשאה' });
+// מחיקת איש קשר לא רלוונטי מהרשימה — פתוח לכל שגריר מחובר, כחלק מתחזוקת הרשימה המשותפת
+router.delete('/contacts/:id', requireAuth, ah(async (req, res) => {
+  const { rowCount } = await pool.query('DELETE FROM contacts WHERE id = $1', [req.params.id]);
+  if (!rowCount) return res.status(404).json({ error: 'איש קשר לא נמצא' });
+  res.json({ ok: true });
+}));
+
+// סימון "מועמד/ת לשגרירות": לוקחים אחריות בעצמכם, או משאירים פתוח לשאלה של שגרירים אחרים.
+// פתוח לכל זהות — זו בדיוק המטרה: שכל אחד יוכל להציע ולקחת/להעביר הלאה אחריות.
+router.post('/contacts/:id/candidate', requireAuth, ah(async (req, res) => {
+  const { candidate, owner } = req.body || {};
+  const { rowCount } = await pool.query('SELECT 1 FROM contacts WHERE id = $1', [req.params.id]);
+  if (!rowCount) return res.status(404).json({ error: 'איש קשר לא נמצא' });
+  if (candidate === false) {
+    await pool.query(
+      'UPDATE contacts SET ambassador_candidate = FALSE, candidate_owner_id = NULL, updated_at = now() WHERE id = $1',
+      [req.params.id]
+    );
+  } else {
+    const ownerId = owner === 'me' ? req.ambassador.id : null;
+    await pool.query(
+      'UPDATE contacts SET ambassador_candidate = TRUE, candidate_owner_id = $1, updated_at = now() WHERE id = $2',
+      [ownerId, req.params.id]
+    );
   }
+  const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);
+  res.json(shapeContact(rows[0]));
+}));
+
+router.get('/contacts/:id/history', requireAuth, ah(async (req, res) => {
+  const { rows: crows } = await pool.query('SELECT id FROM contacts WHERE id = $1', [req.params.id]);
+  if (!crows[0]) return res.status(404).json({ error: 'איש קשר לא נמצא' });
   const { rows } = await pool.query(
     `SELECT h.status, h.changed_at, a.name AS changed_by
      FROM status_history h LEFT JOIN ambassadors a ON a.id = h.changed_by
@@ -277,8 +294,9 @@ router.get('/contacts/:id/history', requireAuth, ah(async (req, res) => {
   });
 }));
 
-// --- ambassadors (admin) ---
-router.get('/ambassadors', requireAdmin, ah(async (req, res) => {
+// --- ambassadors ---
+// הרשימה עצמה פתוחה לכולם (גם בלי זהות נבחרת עדיין) — היא משמשת גם כמסך "מי אתה?"
+router.get('/ambassadors', ah(async (req, res) => {
   const { rows } = await pool.query(`
     SELECT a.id, a.name, a.phone, a.is_admin,
            COUNT(c.id)::int AS contact_count
@@ -291,12 +309,12 @@ router.get('/ambassadors', requireAdmin, ah(async (req, res) => {
 }));
 
 router.post('/ambassadors', requireAdmin, ah(async (req, res) => {
-  const { name, phone, pin, isAdmin } = req.body || {};
-  if (!name || !name.trim() || !pin) return res.status(400).json({ error: 'יש להזין שם וקוד כניסה' });
+  const { name, phone, isAdmin } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'יש להזין שם' });
   try {
     const { rows } = await pool.query(
-      'INSERT INTO ambassadors (name, phone, pin_hash, is_admin) VALUES ($1, $2, $3, $4) RETURNING id, name, phone, is_admin',
-      [name.trim(), phone || null, hashPin(pin), !!isAdmin]
+      'INSERT INTO ambassadors (name, phone, is_admin) VALUES ($1, $2, $3) RETURNING id, name, phone, is_admin',
+      [name.trim(), phone || null, !!isAdmin]
     );
     res.status(201).json({ id: rows[0].id, name: rows[0].name, phone: rows[0].phone, isAdmin: rows[0].is_admin, contactCount: 0 });
   } catch (e) {
@@ -306,13 +324,12 @@ router.post('/ambassadors', requireAdmin, ah(async (req, res) => {
 }));
 
 router.patch('/ambassadors/:id', requireAdmin, ah(async (req, res) => {
-  const { name, phone, pin, isAdmin } = req.body || {};
+  const { name, phone, isAdmin } = req.body || {};
   const updates = [];
   const values = [];
   let i = 1;
   if (name !== undefined) { updates.push(`name = $${i++}`); values.push(name.trim()); }
   if (phone !== undefined) { updates.push(`phone = $${i++}`); values.push(phone); }
-  if (pin) { updates.push(`pin_hash = $${i++}`); values.push(hashPin(pin)); }
   if (isAdmin !== undefined) { updates.push(`is_admin = $${i++}`); values.push(!!isAdmin); }
   if (!updates.length) return res.json({ ok: true });
   values.push(req.params.id);
