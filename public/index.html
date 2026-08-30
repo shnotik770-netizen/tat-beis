@@ -1140,6 +1140,7 @@ function openDebtReportPDF(){
   const clsChips = classes.map(function(c){ return '<span class="chip on" onclick="this.classList.toggle(\'on\')" data-id="'+esc(c)+'">'+esc(c)+'</span>'; }).join('');
   openM('<div class="m-title">📄 דוח חובות ל-PDF</div>' +
     '<div class="info">בחר/י אילו מוסדות וכיתות לכלול בדוח (הכל מסומן כברירת מחדל — לחיצה על צ׳יפ מסמנת/מבטלת)</div>' +
+    '<div class="info">💡 כדי לראות מספרי עמודים בדוח המודפס/PDF, סמנ/י באפשרות "כותרות ותחתיות" (Headers and footers) בדיאלוג ההדפסה שייפתח</div>' +
     '<div class="fg"><label>מוסדות</label><div class="chips" id="rptInstChips">'+instChips+'</div></div>' +
     '<div class="fg"><label>כיתות</label><div class="chips" id="rptClsChips">'+clsChips+'</div></div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick="genDebtReportPDF()">🖨️ צור והדפס</button></div>');
@@ -1179,6 +1180,11 @@ function genDebtReportPDF(){
 
   document.getElementById('printReport').innerHTML = html;
   closeM();
+  // מספור עמודים בהדפסה הוא הגדרת דפדפן ("כותרות ותחתיות") ולא משהו שדף אינטרנט יכול לקבוע בעצמו —
+  // מגדירים כותרת עמוד ידידותית כדי שהיא תופיע יפה בכותרת/תחתית שהדפדפן מוסיף, ומשחזרים אחרי ההדפסה
+  const prevTitle = document.title;
+  document.title = 'דוח חובות משפחתיים - ' + new Date().toLocaleDateString('he-IL');
+  window.onafterprint = function(){ document.title = prevTitle; window.onafterprint = null; };
   window.print();
 }
 function buildDebtReportStudentBlock(s){
