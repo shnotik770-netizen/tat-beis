@@ -1276,27 +1276,9 @@ function renderFamilyLedger(data){
   if(!data){ toast('שגיאה בטעינה','err'); return; }
   window._familyData = data; // לשימוש בשליחת וואטסאפ
 
-  const q = ((document.getElementById('famSearch')||{}).value || '').trim().toLowerCase();
-  const dFrom = (document.getElementById('famDateFrom')||{}).value || '';
-  const dTo = (document.getElementById('famDateTo')||{}).value || '';
   const clickFilter = window._famClickFilter || null;
 
   let timeline = data.timeline.slice();
-  if(q){
-    timeline = timeline.filter(function(r){
-      const detailsTxt = r.type==='demand' ? r.title : ((r.payer||'')+' '+(r.method||''));
-      return (r.childName||'').toLowerCase().indexOf(q)>-1 || (detailsTxt||'').toLowerCase().indexOf(q)>-1;
-    });
-  }
-  if(dFrom || dTo){
-    timeline = timeline.filter(function(r){
-      const iso = isoFromDMY(r.date);
-      if(!iso) return true;
-      if(dFrom && iso<dFrom) return false;
-      if(dTo && iso>dTo) return false;
-      return true;
-    });
-  }
   if(clickFilter){
     timeline = timeline.filter(function(r){
       if(clickFilter.col==='child') return r.childId===clickFilter.val;
@@ -1356,12 +1338,7 @@ function renderFamilyLedger(data){
       '<div class="stat gr" style="padding:10px"><div class="stat-l">סה"כ שולם</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalPaid.toLocaleString()+'</div></div>' +
       '<div class="stat '+(data.familyTotalBalance>0?'rd':'gr')+'" style="padding:10px"><div class="stat-l">'+(data.familyTotalBalance>0?'חוב משפחתי':'מסולק')+'</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalBalance.toLocaleString()+'</div></div>' +
     '</div>' +
-    '<div class="sr" style="margin-bottom:10px">' +
-      '<input id="famSearch" style="flex:1 1 200px" placeholder="חיפוש (ילד, פרטים)..." value="'+esc(q)+'" oninput="_reRenderFamilyLedger()">' +
-      '<input id="famDateFrom" type="date" style="flex:0 0 140px" value="'+esc(dFrom)+'" onchange="_reRenderFamilyLedger()" title="מתאריך">' +
-      '<input id="famDateTo" type="date" style="flex:0 0 140px" value="'+esc(dTo)+'" onchange="_reRenderFamilyLedger()" title="עד תאריך">' +
-      (clickFilter ? '<button class="btn b-h b-sm" onclick="clearFamClickFilter()">'+esc(clickFilter.label)+' ✕</button>' : '') +
-    '</div>' +
+    (clickFilter ? '<div class="info" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">מסונן לפי: '+esc(clickFilter.label)+'<button class="btn b-h b-sm" onclick="clearFamClickFilter()">נקה סינון ✕</button></div>' : '') +
     '<div class="card" style="padding:0;overflow-x:auto;margin-bottom:14px"><table>' +
     '<thead><tr>'+
       th('famLedger','date','תאריך','_reRenderFamilyLedger')+
@@ -1369,7 +1346,7 @@ function renderFamilyLedger(data){
       th('famLedger','details','פרטים','_reRenderFamilyLedger')+
       th('famLedger','amount','סכום','_reRenderFamilyLedger')+
     '</tr></thead>' +
-    '<tbody>'+(rows||'<tr><td colspan="4" class="empty">אין נתונים תואמים</td></tr>')+'</tbody></table></div>' +
+    '<tbody>'+(rows||'<tr><td colspan="4" class="empty">'+(clickFilter?'אין נתונים תואמים לסינון':'אין נתונים')+'</td></tr>')+'</tbody></table></div>' +
     '<div class="fg"><label>שליחת הדוח בוואטסאפ להורה</label><div class="chips" id="famParentChips">'+(parentChips||'<span class="t2">אין מספרי טלפון רשומים</span>')+'</div></div>' +
     '<div class="fg"><label>בני המשפחה</label><div class="card" style="padding:0 12px">'+membersList+'</div></div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">סגור</button><button class="btn b-g" onclick="openPayMForFamilyLedger()">💳 רישום תשלום</button><a class="btn b-g" id="famWaBtn" style="pointer-events:none;opacity:.5" target="_blank">💬 שלח דוח בוואטסאפ</a></div>';
