@@ -546,9 +546,7 @@ async function importPendingFromPaste(rawText) {
     }
     const amount = parseFloat(String(amountRaw || '').replace(/[^\d.-]/g, ''));
     if (!amount || amount <= 0) { skipped++; skippedReasons.push(`שורה ${idx + 1}: ${payerRaw || 'ללא שם'} — סכום לא תקין`); continue; }
-    let dateVal;
-    try { dateVal = dateRaw ? new Date(dateRaw) : new Date(); if (isNaN(dateVal.getTime())) dateVal = new Date(); }
-    catch (e) { dateVal = new Date(); }
+    const dateVal = logic.parsePastedDate(dateRaw);
 
     await pool.query('INSERT INTO pending_payments (id, date, payer, amount, method, notes) VALUES ($1,$2,$3,$4,$5,$6)',
       [logic.uid('N'), dateVal, payerRaw || '', amount, methodRaw || '', notesRaw || '']);
