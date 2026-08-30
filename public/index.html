@@ -672,6 +672,12 @@ function stDebt(sid) {
     .reduce(function(s,d){ return s+Math.max(0, d.amount-paidOnDem(sid,d.id)); },0);
   return Math.max(0, fromDem - genCredit(sid));
 }
+// חוב לתצוגה: אם ברמת המשפחה המאזן מאוזן (למשל תשלום שלא פוצל בדיוק בין אחים), אף ילד
+// במשפחה לא יוצג בשום מקום כבעל חוב אישי — רק כשלמשפחה כולה יש נטו חוב פתוח
+function displayDebt(sid){
+  if(familyNetDebt(clientFamilyIds(sid))<0.01) return 0;
+  return stDebt(sid);
+}
 function dmyToSortable(dmy){
   if(!dmy) return 99999999;
   const p = dmy.split('/');
@@ -709,6 +715,7 @@ function waLink(phone, msg){ return 'https://wa.me/'+toIntlPhone(phone)+'?text='
 function buildWaMsg(sid){
   const s = D.students.filter(function(x){return x.id===sid;})[0];
   if(!s) return '';
+  const famSettled = familyNetDebt(clientFamilyIds(sid))<0.01;
   const demandsFor = D.demands.filter(function(d){return d.studentIds.indexOf(sid)>-1;});
   const L = [];
   L.push('שלום, פירוט תשלומים עבור '+s.firstName+' '+s.lastName+' ('+s.class+'):');
@@ -716,12 +723,12 @@ function buildWaMsg(sid){
   if(demandsFor.length){
     demandsFor.forEach(function(d){
       const paid = paidOnDem(sid,d.id);
-      const bal = Math.max(0, d.amount-paid);
+      const bal = famSettled ? 0 : Math.max(0, d.amount-paid);
       L.push('- '+d.title+': ' + String.fromCharCode(8362)+d.amount + (bal>0 ? (' (נותר '+String.fromCharCode(8362)+bal+')') : ' (שולם)'));
     });
   } else L.push('אין דרישות פתוחות');
   L.push('');
-  L.push('סה"כ חוב: '+String.fromCharCode(8362)+stDebt(sid).toLocaleString());
+  L.push('סה"כ חוב: '+String.fromCharCode(8362)+(famSettled?0:stDebt(sid)).toLocaleString());
   return L.join(String.fromCharCode(10));
 }
 
@@ -907,7 +914,7 @@ function renderStudentsResults(){
   const distinctGroupCount = Object.keys(groupSizes).length;
   let lastGroup = null;
   const rows = list.map(function(s){
-    const debt = stDebt(s.id);
+    const debt = displayDebt(s.id);
     const famIds = clientFamilyIds(s.id);
     const sibs = D.students.filter(function(x){ return x.id!==s.id && famIds.indexOf(x.id)>-1; });
     let groupHdr = '';
@@ -1105,7 +1112,7 @@ function doQuickSearch(q){
   }).slice(0,15);
   if(!list.length){ box.innerHTML = '<div class="t2">לא נמצאו תוצאות</div>'; return; }
   box.innerHTML = list.map(function(s){
-    const debt = stDebt(s.id);
+    const debt = displayDebt(s.id);
     return '<div class="p-row" style="cursor:pointer" onclick=\'closeM();openLedger("'+s.id+'")\'>' +
       '<span>'+s.lastName+' '+s.firstName+' <span class="badge">'+(classKey(s)||'—')+'</span>'+(s.active!=='כן'?' <span class="badge gy">לא פעיל</span>':'')+'</span>' +
       (debt>0?'<span class="badge rd">חוב ₪'+debt.toLocaleString()+'</span>':'<span class="badge gr">✓</span>') +
@@ -1210,7 +1217,10 @@ function openLedger(id) {
 }
 function renderLedger(data) {
   const s = data.student;
+  // אם ברמת המשפחה המאזן מאוזן, לא מציגים לילד הזה חוב בשום מקום בכרטסת שלו — גם לא בשורת דרישה בודדת
+  const famSettled = familyNetDebt(clientFamilyIds(s.id))<0.01;
   const rows = data.ledger.map(function(r){
+    const bal = famSettled ? Math.min(r.balance,0) : r.balance;
     const payRows = r.payments.map(function(p){
       return '<div class="p-row"><span class="t2">'+p.date+(p.method?' · '+p.method:'')+(p.payer?' · '+p.payer:'')+(p.isShared?' · <span class="badge am">משותף</span>':'')+'</span>' +
         '<span><strong>₪'+p.share.toLocaleString()+'</strong> <button class="btn b-r b-sm" onclick=\'delPay("'+p.id+'","'+s.id+'")\'>🗑️</button></span></div>';
@@ -1219,7 +1229,7 @@ function renderLedger(data) {
       '<div style="display:flex;justify-content:space-between;align-items:center">' +
       '<div><strong>'+r.title+'</strong>'+(r.catNames&&r.catNames.length?' <span class="badge">'+r.catNames.join(', ')+'</span>':'')+(r.isFamily?' <span class="badge am">👨‍👩‍👧 משפחתי</span>':'')+(r.dueDate?' <span class="t2">📅'+r.dueDate+'</span>':'')+
       '<div class="t2">₪'+r.amount.toLocaleString()+' · שולם ₪'+r.paid.toLocaleString()+'</div></div>' +
-      '<div style="text-align:left"><span class="badge '+(r.balance>0?'rd':(r.balance<0?'am':'gr'))+'">'+(r.balance>0?'חוב ₪'+r.balance.toLocaleString():(r.balance<0?'עודף ₪'+Math.abs(r.balance).toLocaleString():'שולם ✓'))+'</span><br>' +
+      '<div style="text-align:left"><span class="badge '+(bal>0?'rd':(bal<0?'am':'gr'))+'">'+(bal>0?'חוב ₪'+bal.toLocaleString():(bal<0?'עודף ₪'+Math.abs(bal).toLocaleString():'שולם ✓'))+'</span><br>' +
       '<button class="btn b-h b-sm" style="margin-top:4px" onclick=\'openSplitDemAmt("'+r.demandId+'","'+s.id+'",'+r.amount+')\'>✏️ ערוך סכום</button> <button class="btn b-r b-sm" style="margin-top:4px" onclick=\'remFromDem("'+r.demandId+'","'+s.id+'")\'>הסר מדרישה</button></div></div>' +
       (payRows ? '<div class="dvd"></div>'+payRows : '') +
       '</div>';
@@ -1237,13 +1247,14 @@ function renderLedger(data) {
       (s.momPhone?' <a class="btn b-g b-sm" href="'+waLink(s.momPhone, buildWaMsg(s.id))+'" target="_blank">💬</a>':'')+'</div>';
     parentHtml += '</div>';
   }
+  const dispBalance = famSettled ? 0 : data.totalBalance;
   document.getElementById('modal').innerHTML =
     '<div class="m-title">📒 '+s.firstName+' '+s.lastName+' <span class="badge">'+s.class+'</span></div>' +
     parentHtml +
     '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">' +
       '<div class="stat bl" style="padding:10px"><div class="stat-l">חויב</div><div class="stat-v" style="font-size:16px">₪'+data.totalDemanded.toLocaleString()+'</div></div>' +
       '<div class="stat gr" style="padding:10px"><div class="stat-l">שולם</div><div class="stat-v" style="font-size:16px">₪'+data.totalPaid.toLocaleString()+'</div></div>' +
-      '<div class="stat '+(data.totalBalance>0?'rd':'gr')+'" style="padding:10px"><div class="stat-l">'+(data.totalBalance>0?'חוב':'מסולק')+'</div><div class="stat-v" style="font-size:16px">₪'+data.totalBalance.toLocaleString()+'</div></div>' +
+      '<div class="stat '+(dispBalance>0?'rd':'gr')+'" style="padding:10px"><div class="stat-l">'+(dispBalance>0?'חוב':'מסולק')+'</div><div class="stat-v" style="font-size:16px">₪'+dispBalance.toLocaleString()+'</div></div>' +
     '</div>' +
     (data.genCredit>0 ? '<div class="card" style="border-right:3px solid var(--grn);margin-bottom:8px"><strong style="color:var(--grn)">✅ זיכוי כללי: ₪'+data.genCredit.toLocaleString()+'</strong>'+genRows+'</div>' : '') +
     (rows || '<div class="empty">אין דרישות לתלמיד זה</div>') +
@@ -1253,42 +1264,67 @@ function renderLedger(data) {
 }
 function _reRenderFamilyLedger(){ renderFamilyLedger(window._familyData); }
 function openFamilyLedger(studentId){
+  window._famClickFilter = null;
   openM('<div class="loading">טוען כרטסת משפחתית...</div>');
   google.script.run.withSuccessHandler(renderFamilyLedger).withFailureHandler(function(e){ toast(e.message,'err'); }).getFamilyLedger(studentId);
 }
+function famCellClick(el){
+  window._famClickFilter = {col: el.getAttribute('data-col'), val: el.getAttribute('data-val'), label: el.getAttribute('data-label')};
+  _reRenderFamilyLedger();
+}
+function clearFamClickFilter(){ window._famClickFilter = null; _reRenderFamilyLedger(); }
 function renderFamilyLedger(data){
   if(!data){ toast('שגיאה בטעינה','err'); return; }
   window._familyData = data; // לשימוש בשליחת וואטסאפ
 
-  const sortedTimeline = tblApplySort('famLedger', data.timeline, function(col, r){
-    if(col==='type') return r.type==='demand'?(r.isFamily?'0':'1'):'2';
+  const q = ((document.getElementById('famSearch')||{}).value || '').trim().toLowerCase();
+  const dFrom = (document.getElementById('famDateFrom')||{}).value || '';
+  const dTo = (document.getElementById('famDateTo')||{}).value || '';
+  const clickFilter = window._famClickFilter || null;
+
+  let timeline = data.timeline.slice();
+  if(q){
+    timeline = timeline.filter(function(r){
+      const detailsTxt = r.type==='demand' ? r.title : ((r.payer||'')+' '+(r.method||''));
+      return (r.childName||'').toLowerCase().indexOf(q)>-1 || (detailsTxt||'').toLowerCase().indexOf(q)>-1;
+    });
+  }
+  if(dFrom || dTo){
+    timeline = timeline.filter(function(r){
+      const iso = isoFromDMY(r.date);
+      if(!iso) return true;
+      if(dFrom && iso<dFrom) return false;
+      if(dTo && iso>dTo) return false;
+      return true;
+    });
+  }
+  if(clickFilter){
+    timeline = timeline.filter(function(r){
+      if(clickFilter.col==='child') return r.childId===clickFilter.val;
+      if(clickFilter.col==='date') return r.date===clickFilter.val;
+      if(clickFilter.col==='amount') return String(r.amount)===clickFilter.val;
+      return true;
+    });
+  }
+
+  const sortedTimeline = tblApplySort('famLedger', timeline, function(col, r){
     if(col==='date') return dmyToSortable(r.date);
     if(col==='child') return r.childName||'';
     if(col==='details') return r.type==='demand' ? r.title : ((r.payer||'')+(r.method?' '+r.method:''));
     if(col==='amount') return r.amount;
-    if(col==='status') return r.type==='demand' ? (r.balance>0?1:0) : -1;
     return '';
   });
   const rows = sortedTimeline.map(function(r){
+    const dateCell = '<td style="cursor:pointer" data-col="date" data-val="'+esc(r.date)+'" data-label="'+esc('תאריך: '+r.date)+'" onclick="famCellClick(this)">'+r.date+'</td>';
+    const amtCell = '<td style="cursor:pointer" data-col="amount" data-val="'+esc(String(r.amount))+'" data-label="'+esc('סכום: ₪'+r.amount.toLocaleString())+'" onclick="famCellClick(this)">₪'+r.amount.toLocaleString()+(r.type==='payment'&&r.isShared?' <span class="t2">(מתוך ₪'+r.totalAmount.toLocaleString()+' כולל)</span>':'')+'</td>';
+    const childCell = '<td style="cursor:pointer" data-col="child" data-val="'+esc(r.childId)+'" data-label="'+esc('ילד/ה: '+r.childName)+'" onclick="famCellClick(this)">'+r.childName+(r.isShared?' <span class="badge am">'+(r.type==='demand'?(r.isFamily?'👨‍👩‍👧 חלק ממשפחתי עם':'משותף עם'):'פוצל עם')+' '+r.sharedWith.join(', ')+'</span>':'')+'</td>';
     if(r.type==='demand'){
-      return '<tr>' +
-        '<td><span class="badge">📋 '+(r.isFamily?'חיוב משפחתי':'דרישה')+' '+r.num+'</span></td>' +
-        '<td>'+r.date+'</td>' +
-        '<td>'+r.childName+(r.isShared?' <span class="badge am">'+(r.isFamily?'👨‍👩‍👧 חלק ממשפחתי עם':'משותף עם')+' '+r.sharedWith.join(', ')+'</span>':'')+'</td>' +
-        '<td>'+r.title+'</td>' +
-        '<td>₪'+r.amount.toLocaleString()+'</td>' +
-        '<td><span class="badge '+(r.balance>0?'rd':'gr')+'">'+(r.balance>0?'חוב ₪'+r.balance.toLocaleString():'שולם ✓')+'</span></td>' +
-        '</tr>';
-    } else {
-      return '<tr style="background:var(--grnl)">' +
-        '<td><span class="badge gr">💳 תשלום '+r.num+'</span></td>' +
-        '<td>'+r.date+'</td>' +
-        '<td>'+r.childName+(r.isShared?' <span class="badge am">פוצל עם '+r.sharedWith.join(', ')+'</span>':'')+'</td>' +
-        '<td>'+(r.payer?'שילם/ה: '+r.payer:'')+(r.method?' · '+r.method:'')+'</td>' +
-        '<td>₪'+r.amount.toLocaleString()+(r.isShared?' <span class="t2">(מתוך ₪'+r.totalAmount.toLocaleString()+' כולל)</span>':'')+'</td>' +
-        '<td>—</td>' +
-        '</tr>';
+      const rowBalance = data.familyNet<=0 ? 0 : r.balance;
+      const detailsTxt = '📋 '+esc(r.title)+(rowBalance>0?' · <span class="t2">חוב ₪'+rowBalance.toLocaleString()+'</span>':' · <span class="t2">שולם ✓</span>');
+      return '<tr>'+dateCell+childCell+'<td>'+detailsTxt+'</td>'+amtCell+'</tr>';
     }
+    const detailsTxt = '💳 '+(r.payer?'שילם/ה: '+esc(r.payer):'')+(r.method?' · '+esc(r.method):'');
+    return '<tr style="background:var(--grnl)">'+dateCell+childCell+'<td>'+detailsTxt+'</td>'+amtCell+'</tr>';
   }).join('');
 
   const parentChips = data.parents.map(function(p){
@@ -1297,31 +1333,44 @@ function renderFamilyLedger(data){
 
   const membersList = data.members.map(function(m){
     const s = m.student;
+    // אם ברמת המשפחה המאזן מאוזן, אף ילד לא יוצג כבעל חוב אישי כאן — גם אם החלוקה הפנימית בין האחים לא מדויקת
+    const mBalance = data.familyNet<=0 ? 0 : m.totalBalance;
     return '<div class="p-row">' +
       '<span style="cursor:pointer" onclick=\'closeM();openLedger("'+s.id+'")\'><strong>'+s.firstName+' '+s.lastName+'</strong> <span class="badge">'+(classKey(s)||'—')+'</span>'+(s.active!=='כן'?' <span class="badge gy">לא פעיל</span>':'')+'</span>' +
       '<span style="display:flex;align-items:center;gap:6px">' +
-        '<span class="badge '+(m.totalBalance>0?'rd':'gr')+'">'+(m.totalBalance>0?'חוב ₪'+m.totalBalance.toLocaleString():'מסולק ✓')+'</span>' +
+        '<span class="badge '+(mBalance>0?'rd':'gr')+'">'+(mBalance>0?'חוב ₪'+mBalance.toLocaleString():'מסולק ✓')+'</span>' +
         '<button class="btn b-r b-ic b-sm" title="מחק תלמיד זה" onclick=\'delStFromFamily("'+s.id+'")\'>🗑️</button>' +
       '</span></div>';
   }).join('');
 
+  const netBanner = data.familyNet>0
+    ? '<div class="card" style="border-right:3px solid var(--red);background:var(--redl);margin-bottom:12px"><strong style="color:var(--red)">⚠️ למשפחה חוב פתוח של ₪'+data.familyNet.toLocaleString()+'</strong></div>'
+    : (data.familyNet<0
+      ? '<div class="card" style="border-right:3px solid var(--amb);background:var(--ambl);margin-bottom:12px"><strong style="color:var(--amb)">💰 למשפחה זכות של ₪'+Math.abs(data.familyNet).toLocaleString()+'</strong></div>'
+      : '<div class="card" style="border-right:3px solid var(--grn);background:var(--grnl);margin-bottom:12px"><strong style="color:var(--grn)">✅ המשפחה מסולקת</strong></div>');
+
   document.getElementById('modal').innerHTML =
     '<div class="m-title">👨‍👩‍👧 כרטסת משפחתית</div>' +
+    netBanner +
     '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">' +
-      '<div class="stat bl" style="padding:10px"><div class="stat-l">סה"כ חויב</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalDemanded.toLocaleString()+'</div></div>' +
+      '<div class="stat bl" style="padding:10px"><div class="stat-l">סה"כ דרישות</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalDemanded.toLocaleString()+'</div></div>' +
       '<div class="stat gr" style="padding:10px"><div class="stat-l">סה"כ שולם</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalPaid.toLocaleString()+'</div></div>' +
       '<div class="stat '+(data.familyTotalBalance>0?'rd':'gr')+'" style="padding:10px"><div class="stat-l">'+(data.familyTotalBalance>0?'חוב משפחתי':'מסולק')+'</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalBalance.toLocaleString()+'</div></div>' +
     '</div>' +
+    '<div class="sr" style="margin-bottom:10px">' +
+      '<input id="famSearch" placeholder="חיפוש (ילד, פרטים)..." value="'+esc(q)+'" oninput="_reRenderFamilyLedger()">' +
+      '<input id="famDateFrom" type="date" value="'+esc(dFrom)+'" onchange="_reRenderFamilyLedger()" title="מתאריך">' +
+      '<input id="famDateTo" type="date" value="'+esc(dTo)+'" onchange="_reRenderFamilyLedger()" title="עד תאריך">' +
+      (clickFilter ? '<button class="btn b-h b-sm" onclick="clearFamClickFilter()">'+esc(clickFilter.label)+' ✕</button>' : '') +
+    '</div>' +
     '<div class="card" style="padding:0;overflow-x:auto;margin-bottom:14px"><table>' +
     '<thead><tr>'+
-      th('famLedger','type','סוג','_reRenderFamilyLedger')+
       th('famLedger','date','תאריך','_reRenderFamilyLedger')+
       th('famLedger','child','ילד/ה','_reRenderFamilyLedger')+
       th('famLedger','details','פרטים','_reRenderFamilyLedger')+
       th('famLedger','amount','סכום','_reRenderFamilyLedger')+
-      th('famLedger','status','סטטוס','_reRenderFamilyLedger')+
     '</tr></thead>' +
-    '<tbody>'+(rows||'<tr><td colspan="6" class="empty">אין נתונים</td></tr>')+'</tbody></table></div>' +
+    '<tbody>'+(rows||'<tr><td colspan="4" class="empty">אין נתונים תואמים</td></tr>')+'</tbody></table></div>' +
     '<div class="fg"><label>שליחת הדוח בוואטסאפ להורה</label><div class="chips" id="famParentChips">'+(parentChips||'<span class="t2">אין מספרי טלפון רשומים</span>')+'</div></div>' +
     '<div class="fg"><label>בני המשפחה</label><div class="card" style="padding:0 12px">'+membersList+'</div></div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">סגור</button><button class="btn b-g" onclick="openPayMForFamilyLedger()">💳 רישום תשלום</button><a class="btn b-g" id="famWaBtn" style="pointer-events:none;opacity:.5" target="_blank">💬 שלח דוח בוואטסאפ</a></div>';
@@ -2154,7 +2203,7 @@ function openPayM(presetStudentId, presetDemandId) {
 function renderPresetPayStudents(studentIds){
   const students = D.students.filter(function(s){ return studentIds.indexOf(s.id)>-1; });
   const html = students.map(function(s){
-    const debt = stDebt(s.id);
+    const debt = displayDebt(s.id);
     return '<span class="chip on" onclick="tcPayStudent(this)" data-id="'+s.id+'" data-name="'+esc(s.firstName+' '+s.lastName)+'" data-cls="'+esc(classKey(s))+'">'+s.firstName+' '+s.lastName+' <small>('+(classKey(s)||'—')+')</small>'+(debt>0?' <small style="color:var(--red)">חוב ₪'+debt.toLocaleString()+'</small>':'')+'</span>';
   }).join('');
   document.getElementById('payStudentSection').innerHTML =
@@ -2230,7 +2279,7 @@ function selectPayerSuggestion(phone){
 function showParentChildren(parent){
   const kidIds = parent.kidIds;
   const html = D.students.filter(function(s){ return kidIds.indexOf(s.id)>-1; }).map(function(s){
-    const debt = stDebt(s.id);
+    const debt = displayDebt(s.id);
     return '<span class="chip" onclick="tcPayStudent(this)" data-id="'+s.id+'" data-name="'+esc(s.firstName+' '+s.lastName)+'" data-cls="'+esc(classKey(s))+'">'+s.firstName+' '+s.lastName+' <small>('+(classKey(s)||'—')+')</small>'+(debt>0?' <small style="color:var(--red)">חוב ₪'+debt.toLocaleString()+'</small>':'')+'</span>';
   }).join('');
   document.getElementById('payStudentSection').innerHTML =
@@ -2264,7 +2313,7 @@ function renderManualStudentChips(filterText, cls){
   });
   box.innerHTML = list.map(function(s){
     const on = prevSelected.indexOf(s.id)>-1 || s.id===window._payPresetStudentId;
-    const debt = stDebt(s.id);
+    const debt = displayDebt(s.id);
     return '<span class="chip'+(on?' on':'')+'" onclick="tcPayStudent(this)" data-id="'+s.id+'" data-name="'+esc(s.firstName+' '+s.lastName)+'" data-cls="'+esc(classKey(s))+'">'+s.firstName+' '+s.lastName+' <small>('+(classKey(s)||'—')+')</small>'+(debt>0?' <small style="color:var(--red)">חוב ₪'+debt.toLocaleString()+'</small>':'')+'</span>';
   }).join('') || (hasQuery ? '<span class="t2">לא נמצאו תלמידים</span>' : '<span class="t2">הקלד שם לחיפוש...</span>');
   updPayAmts();
@@ -2314,6 +2363,29 @@ function updPayTot(){
   const tot = sids.reduce(function(s,sid){ const el=document.getElementById('pa_'+sid); return s+(el?parseFloat(el.value)||0:0); },0);
   const el = document.getElementById('payTotLbl'); if(el) el.textContent = '₪'+tot.toLocaleString();
 }
+// בודק אם למשפחה של התלמיד/ים שנבחרו כבר קיים תשלום רשום עם אותו סכום, אותה שיטת תשלום ואותו
+// תאריך בדיוק — כדי לתפוס הזנה כפולה בטעות (ברישום ידני או בשיוך תשלום ממתין)
+function findDuplicatePayment(studentIds, amount, method, dateDMY){
+  if(!studentIds || !studentIds.length || !amount || !dateDMY) return null;
+  const famIds = {};
+  studentIds.forEach(function(sid){ clientFamilyIds(sid).forEach(function(fid){ famIds[fid]=1; }); });
+  return D.payments.filter(function(p){
+    return p.date===dateDMY && (p.method||'')===(method||'') && Math.abs(p.total-amount)<0.01 &&
+      p.studentIds.some(function(sid){ return famIds[sid]; });
+  })[0] || null;
+}
+// מציג אזהרה אם נמצא תשלום דומה קיים; מחזיר true להמשך שמירה, false אם המשתמש ביטל
+function warnIfDuplicatePayment(studentIds, amount, method, dateDMY){
+  const dup = findDuplicatePayment(studentIds, amount, method, dateDMY);
+  if(!dup) return true;
+  const names = dup.studentIds.map(function(sid){
+    const s = D.students.filter(function(x){return x.id===sid;})[0];
+    return s ? s.firstName+' '+s.lastName : '';
+  }).filter(Boolean).join(', ');
+  return confirm('⚠️ נמצא במשפחה תשלום דומה שכבר קיים:\n₪'+amount.toLocaleString()+' · '+method+' · '+dateDMY+
+    (names?'\nעבור: '+names:'')+(dup.payer?' · שילם/ה '+dup.payer:'')+
+    '\n\nייתכן שזו כפילות. להמשיך ולרשום בכל זאת?');
+}
 function savePay() {
   const sids = pickedChips('payStChips');
   if(!sids.length){ toast('חובה לבחור תלמיד','err'); return; }
@@ -2324,6 +2396,11 @@ function savePay() {
     if(a>0){ amounts[sid]=a; hasAmt=true; }
   });
   if(!hasAmt){ toast('נא להזין סכום לפחות לתלמיד אחד','err'); return; }
+  const method = getMethod('payMethodChips');
+  const dateISO = v('p_date')||todayISO();
+  const dateDMY = dmyFromISO(dateISO);
+  const total = Object.keys(amounts).reduce(function(s,k){ return s+amounts[k]; },0);
+  if(!warnIfDuplicatePayment(sids, total, method, dateDMY)) return;
   // ממפים את כותרות הדרישות שנבחרו לשורות הדרישה הספציפיות של התלמידים שבאמת נכללים בתשלום הזה
   const selTitles = pickedDemTitles();
   const demandIds = [];
@@ -2331,7 +2408,7 @@ function savePay() {
     D.demands.filter(function(d){ return d.title===title && d.studentIds.some(function(sid){return sids.indexOf(sid)>-1;}); })
       .forEach(function(d){ if(demandIds.indexOf(d.id)===-1) demandIds.push(d.id); });
   });
-  const d = {studentIds:sids, demandIds: demandIds, amounts:amounts, payer:v('p_payer'), date: v('p_date')||todayISO(), method:getMethod('payMethodChips')};
+  const d = {studentIds:sids, demandIds: demandIds, amounts:amounts, payer:v('p_payer'), date: dateISO, method:method};
   google.script.run.withSuccessHandler(function(r){
     if(r&&!r.ok){ toast(r.err,'err'); return; }
     closeM(); toast('נרשם ✓','ok'); go('pay');
@@ -2529,8 +2606,8 @@ function impMatchStudents(query){
   }).slice(0,8);
 }
 function impSuggestionRow(s){
-  const debt = Math.round(stDebt(s.id));
-  const famDebt = Math.round(clientFamilyIds(s.id).reduce(function(sum,fid){ return sum+stDebt(fid); },0));
+  const famDebt = Math.round(familyNetDebt(clientFamilyIds(s.id)));
+  const debt = famDebt<0.01 ? 0 : Math.round(stDebt(s.id));
   const parents = [s.dadName, s.momName].filter(Boolean).join(', ');
   return '<div class="p-row" style="flex-direction:column;align-items:flex-start;gap:2px;cursor:pointer;padding:7px 8px" data-id="'+s.id+'" data-name="'+esc(s.firstName+' '+s.lastName)+'">' +
     '<div><strong>'+esc(s.firstName+' '+s.lastName)+'</strong> <span class="badge">'+(classKey(s)||'—')+'</span></div>' +
@@ -2659,6 +2736,7 @@ function quickAssignImp(pendingId, inputEl){
   if(!sid){ toast('יש לבחור תלמיד מתוך ההצעות המוצעות','err'); return; }
   const p = (D.pending||[]).filter(function(x){return x.id===pendingId;})[0];
   if(!p) return;
+  if(!warnIfDuplicatePayment([sid], p.amount, p.method||'מזומן', p.date)) return;
   const amounts = {}; amounts[sid] = p.amount;
   inputEl.disabled = true;
   google.script.run.withSuccessHandler(function(r){
@@ -2700,11 +2778,14 @@ function doAssignImp(pendingId){
   const sid = stEl ? stEl.getAttribute('data-selected-id') : null;
   const amt = parseFloat(v('ai_amt'))||0;
   if(!sid||!amt){ toast('נא לבחור תלמיד מהרשימה ולמלא סכום','err'); return; }
+  const method = getMethod('aiMethodChips');
+  const p = (D.pending||[]).filter(function(x){return x.id===pendingId;})[0];
+  if(!warnIfDuplicatePayment([sid], amt, method, p?p.date:'')) return;
   const amounts = {}; amounts[sid]=amt;
   google.script.run.withSuccessHandler(function(r){
     if(r&&!r.ok){ toast(r.err,'err'); return; }
     closeM(); toast('שוייך ✓','ok'); go('imp');
-  }).assignPendingPayment(pendingId, {studentIds:[sid], demandIds:[], amounts:amounts, method:getMethod('aiMethodChips')});
+  }).assignPendingPayment(pendingId, {studentIds:[sid], demandIds:[], amounts:amounts, method:method});
 }
 
 // ── Helpers ──
