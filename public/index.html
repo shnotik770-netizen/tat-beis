@@ -451,6 +451,31 @@ textarea { resize: vertical; line-height: 1.5; }
 .fab-wrap.open .fab-btn { transform: rotate(45deg); background: #4338CA; }
 .fab-wrap.open .fab-btn:hover { transform: rotate(45deg) translateY(-2px); }
 
+/* דוח חובות להדפסה/PDF: הדוח בנוי בתוך #printReport שמוסתר בתצוגה הרגילה, ומוצג רק בהדפסה
+   (window.print) — כך אפשר להשתמש בדיאלוג "שמור כ-PDF" של הדפדפן בלי ספריית PDF חיצונית */
+#printReport { display: none; }
+.rpt-header { text-align: center; margin-bottom: 18px; }
+.rpt-header h1 { font-size: 20px; margin: 0 0 4px; }
+.rpt-date { font-size: 12px; color: var(--t2); }
+.rpt-inst { background: #1E293B; color: #fff; padding: 8px 12px; margin: 18px 0 6px; border-radius: 6px; }
+.rpt-inst h2 { font-size: 15px; margin: 0; }
+.rpt-class { border-bottom: 2px solid var(--bdr); padding: 4px 2px; margin: 10px 0 8px; }
+.rpt-class h3 { font-size: 13px; margin: 0; color: var(--t2); }
+.rpt-student { border: 1px solid var(--bdr); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; page-break-inside: avoid; }
+.rpt-student-hdr { display: flex; justify-content: space-between; align-items: center; font-size: 13.5px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--bdr); }
+.rpt-student-hdr span { color: var(--red); font-weight: 700; }
+.rpt-sub { font-size: 11.5px; font-weight: 700; color: var(--t2); margin: 6px 0 3px; }
+.rpt-table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-bottom: 4px; }
+.rpt-table th, .rpt-table td { border: 1px solid var(--bdr); padding: 3px 6px; text-align: right; }
+.rpt-table th { background: #F1F5F9; }
+@media print {
+  body * { visibility: hidden; }
+  #printReport, #printReport * { visibility: visible; }
+  #printReport { display: block; position: absolute; top: 0; right: 0; left: 0; }
+  .rpt-inst { break-before: page; }
+  .rpt-inst:first-child { break-before: avoid; }
+}
+
 @media (max-width: 768px) {
   .side { width: 82%; max-width: 280px; }
   .main::before { height: 100px; }
@@ -507,6 +532,7 @@ textarea { resize: vertical; line-height: 1.5; }
 
 <div class="toast" id="toast"></div>
 <div class="ov" id="ov" onclick="if(event.target===this)closeMByBackdrop()"><div class="modal" id="modal"></div></div>
+<div id="printReport"></div>
 
 <div class="fab-backdrop" id="fabBackdrop" onclick="closeFab()"></div>
 <div class="fab-wrap" id="fabWrap">
@@ -845,7 +871,7 @@ function clientFamilyIds(studentId){
   return [studentId]; // גיבוי אם המטמון עדיין לא מוכן
 }
 function renderStudents(filter, clsFilter, instFilter) {
-  document.getElementById('tbAct').innerHTML = '<button class="btn b-h" onclick="openDataCompletenessReport()">📋 דוח שלמות נתונים</button> <button class="btn b-h" onclick="runBackfillFamilyInfo()">🔗 השלמת פרטי הורים וכתובת בין אחים</button> <button class="btn b-h" onclick="openExportStudents()">📤 ייצוא</button> <button class="btn b-h" onclick="openImportSt()">📥 ייבוא</button> <button class="btn b-p" onclick="openAddSt()">+ הוסף תלמיד</button>';
+  document.getElementById('tbAct').innerHTML = '<button class="btn b-h" onclick="openDataCompletenessReport()">📋 דוח שלמות נתונים</button> <button class="btn b-h" onclick="runBackfillFamilyInfo()">🔗 השלמת פרטי הורים וכתובת בין אחים</button> <button class="btn b-h" onclick="openExportStudents()">📤 ייצוא</button> <button class="btn b-h" onclick="openImportSt()">📥 ייבוא</button> <button class="btn b-h" onclick="openDebtReportPDF()">📄 דוח חובות ל-PDF</button> <button class="btn b-p" onclick="openAddSt()">+ הוסף תלמיד</button>';
   document.getElementById('pg').innerHTML =
     '<div class="sr"><input id="stSearch" placeholder="חיפוש שם תלמיד / הורה / טלפון..." value="'+esc(filter||'')+'" oninput="renderStudentsResults()"><select id="stCls" onchange="renderStudentsResults()">'+clsOpts(clsFilter)+'</select><select id="stInst" onchange="renderStudentsResults()">'+instOpts(instFilter)+'</select></div>' +
     '<div id="stResultsBox"></div>';
@@ -1097,6 +1123,81 @@ function renderExportStudents(){
     '<textarea readonly style="height:280px;font-family:monospace;font-size:11px" onclick="this.select()">'+esc(text)+'</textarea>';
 }
 
+// ── דוח חובות ל-PDF (הדפסת דפדפן) ──
+// בונה דוח מודפס של כל הילדים שלמשפחתם יש חוב פתוח (allDebts כבר מסננת ברמת המשפחה, לא אישית),
+// מקובץ מוסד ← כיתה, ועם פירוט מלא של הדרישות והתשלומים האישיים של כל ילד מתחתיו.
+// שלב 1: לפני ההדפסה בפועל, מבקשים אילו מוסדות וכיתות לכלול בדוח (הכל מסומן כברירת מחדל)
+function openDebtReportPDF(){
+  const debts = allDebts();
+  if(!debts.length){ toast('אין תלמידים עם חוב פתוח','ok'); return; }
+  const insts = [...new Set(debts.map(function(s){ return s.institution||'ללא מוסד'; }))].sort(function(a,b){ return a.localeCompare(b,'he'); });
+  const classes = [...new Set(debts.map(function(s){ return s.class||'ללא כיתה'; }))].sort(function(a,b){ return a.localeCompare(b,'he'); });
+  const instChips = insts.map(function(i){ return '<span class="chip on" onclick="this.classList.toggle(\'on\')" data-id="'+esc(i)+'">'+esc(i)+'</span>'; }).join('');
+  const clsChips = classes.map(function(c){ return '<span class="chip on" onclick="this.classList.toggle(\'on\')" data-id="'+esc(c)+'">'+esc(c)+'</span>'; }).join('');
+  openM('<div class="m-title">📄 דוח חובות ל-PDF</div>' +
+    '<div class="info">בחר/י אילו מוסדות וכיתות לכלול בדוח (הכל מסומן כברירת מחדל — לחיצה על צ׳יפ מסמנת/מבטלת)</div>' +
+    '<div class="fg"><label>מוסדות</label><div class="chips" id="rptInstChips">'+instChips+'</div></div>' +
+    '<div class="fg"><label>כיתות</label><div class="chips" id="rptClsChips">'+clsChips+'</div></div>' +
+    '<div class="m-foot"><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick="genDebtReportPDF()">🖨️ צור והדפס</button></div>');
+}
+// שלב 2: מסננים לפי הבחירה, בונים את ה-HTML של הדוח בתוך #printReport, וקוראים ל-window.print()
+function genDebtReportPDF(){
+  const selInsts = pickedChips('rptInstChips');
+  const selClasses = pickedChips('rptClsChips');
+  if(!selInsts.length || !selClasses.length){ toast('נא לבחור לפחות מוסד אחד וכיתה אחת','err'); return; }
+  const debts = allDebts().filter(function(s){
+    const inst = s.institution||'ללא מוסד', cls = s.class||'ללא כיתה';
+    return selInsts.indexOf(inst)>-1 && selClasses.indexOf(cls)>-1;
+  });
+  if(!debts.length){ toast('אין תלמידים עם חוב התואמים לסינון שנבחר','err'); return; }
+
+  const groups = {};
+  debts.forEach(function(s){
+    const inst = s.institution || 'ללא מוסד';
+    const cls = s.class || 'ללא כיתה';
+    if(!groups[inst]) groups[inst] = {};
+    if(!groups[inst][cls]) groups[inst][cls] = [];
+    groups[inst][cls].push(s);
+  });
+
+  let html = '<div class="rpt-header"><h1>📄 דוח חובות משפחתיים</h1><div class="rpt-date">הופק בתאריך '+esc(new Date().toLocaleDateString('he-IL'))+' · '+debts.length+' תלמידים</div></div>';
+
+  Object.keys(groups).sort(function(a,b){ return a.localeCompare(b,'he'); }).forEach(function(inst){
+    html += '<div class="rpt-inst"><h2>🏫 '+esc(inst)+'</h2></div>';
+    const byClass = groups[inst];
+    Object.keys(byClass).sort(function(a,b){ return a.localeCompare(b,'he'); }).forEach(function(cls){
+      html += '<div class="rpt-class"><h3>כיתה '+esc(cls)+'</h3></div>';
+      byClass[cls].slice().sort(function(a,b){ return (a.lastName||'').localeCompare(b.lastName||'','he'); }).forEach(function(s){
+        html += buildDebtReportStudentBlock(s);
+      });
+    });
+  });
+
+  document.getElementById('printReport').innerHTML = html;
+  closeM();
+  window.print();
+}
+function buildDebtReportStudentBlock(s){
+  const famDebt = Math.round(familyNetDebt(clientFamilyIds(s.id)));
+  const demandRows = D.demands.filter(function(d){ return d.studentIds.indexOf(s.id)>-1; }).map(function(d){
+    const paid = paidOnDem(s.id, d.id);
+    const bal = Math.max(0, d.amount-paid);
+    return '<tr><td>'+esc(d.title)+'</td><td>₪'+d.amount.toLocaleString()+'</td><td>₪'+Math.round(paid).toLocaleString()+'</td><td>₪'+Math.round(bal).toLocaleString()+'</td></tr>';
+  }).join('');
+  const paymentRows = D.payments.filter(function(p){ return p.studentIds.indexOf(s.id)>-1; }).map(function(p){
+    const a = p.amounts[s.id];
+    const share = (a!==undefined) ? parseFloat(a)||0 : p.total/Math.max(p.studentIds.length,1);
+    return '<tr><td>'+esc(p.date)+'</td><td>'+esc(p.payer||'—')+'</td><td>'+esc(p.method||'—')+'</td><td>₪'+Math.round(share).toLocaleString()+'</td></tr>';
+  }).join('');
+  return '<div class="rpt-student">' +
+    '<div class="rpt-student-hdr"><strong>'+esc(s.lastName+' '+s.firstName)+'</strong><span>חוב משפחתי: ₪'+famDebt.toLocaleString()+'</span></div>' +
+    '<div class="rpt-sub">📋 דרישות</div>' +
+    '<table class="rpt-table"><thead><tr><th>כותרת</th><th>סכום</th><th>שולם</th><th>יתרה</th></tr></thead><tbody>'+(demandRows||'<tr><td colspan="4">אין דרישות</td></tr>')+'</tbody></table>' +
+    '<div class="rpt-sub">💳 זיכויים (תשלומים)</div>' +
+    '<table class="rpt-table"><thead><tr><th>תאריך</th><th>משלם</th><th>שיטה</th><th>סכום</th></tr></thead><tbody>'+(paymentRows||'<tr><td colspan="4">אין תשלומים</td></tr>')+'</tbody></table>' +
+  '</div>';
+}
+
 function openQuickSearchSt(){
   openM('<div class="m-title">🔍 חיפוש תלמיד</div>' +
     '<input id="qs_input" placeholder="הקלד שם..." oninput="doQuickSearch(this.value)" autofocus>' +
@@ -1276,27 +1377,9 @@ function renderFamilyLedger(data){
   if(!data){ toast('שגיאה בטעינה','err'); return; }
   window._familyData = data; // לשימוש בשליחת וואטסאפ
 
-  const q = ((document.getElementById('famSearch')||{}).value || '').trim().toLowerCase();
-  const dFrom = (document.getElementById('famDateFrom')||{}).value || '';
-  const dTo = (document.getElementById('famDateTo')||{}).value || '';
   const clickFilter = window._famClickFilter || null;
 
   let timeline = data.timeline.slice();
-  if(q){
-    timeline = timeline.filter(function(r){
-      const detailsTxt = r.type==='demand' ? r.title : ((r.payer||'')+' '+(r.method||''));
-      return (r.childName||'').toLowerCase().indexOf(q)>-1 || (detailsTxt||'').toLowerCase().indexOf(q)>-1;
-    });
-  }
-  if(dFrom || dTo){
-    timeline = timeline.filter(function(r){
-      const iso = isoFromDMY(r.date);
-      if(!iso) return true;
-      if(dFrom && iso<dFrom) return false;
-      if(dTo && iso>dTo) return false;
-      return true;
-    });
-  }
   if(clickFilter){
     timeline = timeline.filter(function(r){
       if(clickFilter.col==='child') return r.childId===clickFilter.val;
@@ -1356,12 +1439,7 @@ function renderFamilyLedger(data){
       '<div class="stat gr" style="padding:10px"><div class="stat-l">סה"כ שולם</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalPaid.toLocaleString()+'</div></div>' +
       '<div class="stat '+(data.familyTotalBalance>0?'rd':'gr')+'" style="padding:10px"><div class="stat-l">'+(data.familyTotalBalance>0?'חוב משפחתי':'מסולק')+'</div><div class="stat-v" style="font-size:16px">₪'+data.familyTotalBalance.toLocaleString()+'</div></div>' +
     '</div>' +
-    '<div class="sr" style="margin-bottom:10px">' +
-      '<input id="famSearch" placeholder="חיפוש (ילד, פרטים)..." value="'+esc(q)+'" oninput="_reRenderFamilyLedger()">' +
-      '<input id="famDateFrom" type="date" value="'+esc(dFrom)+'" onchange="_reRenderFamilyLedger()" title="מתאריך">' +
-      '<input id="famDateTo" type="date" value="'+esc(dTo)+'" onchange="_reRenderFamilyLedger()" title="עד תאריך">' +
-      (clickFilter ? '<button class="btn b-h b-sm" onclick="clearFamClickFilter()">'+esc(clickFilter.label)+' ✕</button>' : '') +
-    '</div>' +
+    (clickFilter ? '<div class="info" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">מסונן לפי: '+esc(clickFilter.label)+'<button class="btn b-h b-sm" onclick="clearFamClickFilter()">נקה סינון ✕</button></div>' : '') +
     '<div class="card" style="padding:0;overflow-x:auto;margin-bottom:14px"><table>' +
     '<thead><tr>'+
       th('famLedger','date','תאריך','_reRenderFamilyLedger')+
@@ -1369,7 +1447,7 @@ function renderFamilyLedger(data){
       th('famLedger','details','פרטים','_reRenderFamilyLedger')+
       th('famLedger','amount','סכום','_reRenderFamilyLedger')+
     '</tr></thead>' +
-    '<tbody>'+(rows||'<tr><td colspan="4" class="empty">אין נתונים תואמים</td></tr>')+'</tbody></table></div>' +
+    '<tbody>'+(rows||'<tr><td colspan="4" class="empty">'+(clickFilter?'אין נתונים תואמים לסינון':'אין נתונים')+'</td></tr>')+'</tbody></table></div>' +
     '<div class="fg"><label>שליחת הדוח בוואטסאפ להורה</label><div class="chips" id="famParentChips">'+(parentChips||'<span class="t2">אין מספרי טלפון רשומים</span>')+'</div></div>' +
     '<div class="fg"><label>בני המשפחה</label><div class="card" style="padding:0 12px">'+membersList+'</div></div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">סגור</button><button class="btn b-g" onclick="openPayMForFamilyLedger()">💳 רישום תשלום</button><a class="btn b-g" id="famWaBtn" style="pointer-events:none;opacity:.5" target="_blank">💬 שלח דוח בוואטסאפ</a></div>';
@@ -2006,9 +2084,9 @@ function renderPayments() {
   const dTo = (document.getElementById('payDateTo')||{}).value || '';
   document.getElementById('pg').innerHTML =
     '<div class="sr" style="margin-bottom:10px">' +
-      '<input id="paySearch" placeholder="חיפוש (תלמיד, משלם, שיטה)..." value="'+esc(q)+'" oninput="renderPaymentsResults()">' +
-      '<input id="payDateFrom" type="date" value="'+esc(dFrom)+'" onchange="renderPaymentsResults()" title="מתאריך">' +
-      '<input id="payDateTo" type="date" value="'+esc(dTo)+'" onchange="renderPaymentsResults()" title="עד תאריך">' +
+      '<input id="paySearch" style="flex:1 1 220px" placeholder="חיפוש (תלמיד, משלם, שיטה)..." value="'+esc(q)+'" oninput="renderPaymentsResults()">' +
+      '<input id="payDateFrom" type="date" style="flex:0 0 150px" value="'+esc(dFrom)+'" onchange="renderPaymentsResults()" title="מתאריך">' +
+      '<input id="payDateTo" type="date" style="flex:0 0 150px" value="'+esc(dTo)+'" onchange="renderPaymentsResults()" title="עד תאריך">' +
     '</div>' +
     '<div id="payResultsBox"></div>';
   renderPaymentsResults();
