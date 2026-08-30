@@ -1991,14 +1991,32 @@ function saveImportDemand(){
 let _payFilter = null; // {col, value, label}
 function setPayFilter(col, value, label){
   _payFilter = (_payFilter && _payFilter.col===col && _payFilter.value===value) ? null : {col:col, value:value, label:label};
-  renderPayments();
+  renderPaymentsResults();
 }
-function clearPayFilter(){ _payFilter = null; renderPayments(); }
+function clearPayFilter(){ _payFilter = null; renderPaymentsResults(); }
 function payCellClick(el){
   setPayFilter(el.getAttribute('data-col'), el.getAttribute('data-val'), el.getAttribute('data-label'));
 }
+// בונה את מסגרת הדף (שורת חיפוש/סינון תאריכים) פעם אחת בלבד — עדכון תוצאות בהמשך (הקלדה/מיון/סינון)
+// כותב רק לתוך payResultsBox, כדי ששדה החיפוש לא ייבנה מחדש ויאבד פוקוס בכל הקשה
 function renderPayments() {
   document.getElementById('tbAct').innerHTML = '<button class="btn b-p" onclick="openPayM()">+ רשום תשלום</button>';
+  const q = ((document.getElementById('paySearch')||{}).value || '').trim().toLowerCase();
+  const dFrom = (document.getElementById('payDateFrom')||{}).value || '';
+  const dTo = (document.getElementById('payDateTo')||{}).value || '';
+  document.getElementById('pg').innerHTML =
+    '<div class="sr" style="margin-bottom:10px">' +
+      '<input id="paySearch" placeholder="חיפוש (תלמיד, משלם, שיטה)..." value="'+esc(q)+'" oninput="renderPaymentsResults()">' +
+      '<input id="payDateFrom" type="date" value="'+esc(dFrom)+'" onchange="renderPaymentsResults()" title="מתאריך">' +
+      '<input id="payDateTo" type="date" value="'+esc(dTo)+'" onchange="renderPaymentsResults()" title="עד תאריך">' +
+    '</div>' +
+    '<div id="payResultsBox"></div>';
+  renderPaymentsResults();
+}
+function renderPaymentsResults() {
+  const q = ((document.getElementById('paySearch')||{}).value || '').trim().toLowerCase();
+  const dFrom = (document.getElementById('payDateFrom')||{}).value || '';
+  const dTo = (document.getElementById('payDateTo')||{}).value || '';
   let list = D.payments.slice().reverse().map(function(p){
     const kidsObjs = D.students.filter(function(s){ return p.studentIds.indexOf(s.id)>-1; });
     const kids = kidsObjs.map(function(s){return s.firstName+' '+s.lastName;}).join(', ');
@@ -2011,6 +2029,20 @@ function renderPayments() {
     return {p:p, kids:kids, kidsObjs:kidsObjs, breakdown:breakdown, dateSort:dmyToSortable(p.date)};
   });
 
+  if(q){
+    list = list.filter(function(r){
+      return r.kids.toLowerCase().indexOf(q)>-1 || (r.p.payer||'').toLowerCase().indexOf(q)>-1 || (r.p.method||'').toLowerCase().indexOf(q)>-1;
+    });
+  }
+  if(dFrom || dTo){
+    list = list.filter(function(r){
+      const iso = isoFromDMY(r.p.date);
+      if(!iso) return true;
+      if(dFrom && iso<dFrom) return false;
+      if(dTo && iso>dTo) return false;
+      return true;
+    });
+  }
   if(_payFilter){
     list = list.filter(function(r){
       if(_payFilter.col==='kids') return r.kidsObjs.some(function(s){return s.id===_payFilter.value;});
@@ -2042,16 +2074,19 @@ function renderPayments() {
       '<td style="cursor:pointer" data-col="date" data-val="'+esc(p.date)+'" data-label="'+esc('תאריך: '+p.date)+'" onclick="payCellClick(this)">'+p.date+'</td>' +
       '<td><button class="btn b-h b-sm" onclick=\'openEditPay("'+p.id+'")\'>✏️</button> <button class="btn b-r b-sm" onclick=\'delPayFromList("'+p.id+'")\'>🗑️</button></td></tr>';
   }).join('');
-  document.getElementById('pg').innerHTML =
+  const anyFilter = _payFilter || q || dFrom || dTo;
+  const box = document.getElementById('payResultsBox');
+  if(!box) return;
+  box.innerHTML =
     (_payFilter ? '<div class="info" style="display:flex;justify-content:space-between;align-items:center;gap:8px">מסונן לפי: '+esc(_payFilter.label)+'<button class="btn b-h b-sm" onclick="clearPayFilter()">נקה סינון ✕</button></div>' : '') +
     '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>'+
-      th('payments','kids','תלמידים','renderPayments')+
-      th('payments','payer','משלם','renderPayments')+
-      th('payments','total','סכום','renderPayments','desc')+
-      th('payments','method','שיטה','renderPayments')+
-      th('payments','date','תאריך','renderPayments','desc')+
+      th('payments','kids','תלמידים','renderPaymentsResults')+
+      th('payments','payer','משלם','renderPaymentsResults')+
+      th('payments','total','סכום','renderPaymentsResults','desc')+
+      th('payments','method','שיטה','renderPaymentsResults')+
+      th('payments','date','תאריך','renderPaymentsResults','desc')+
       '<th></th></tr></thead>' +
-    '<tbody>'+(rows || '<tr><td colspan="6" class="empty">'+(_payFilter?'אין תשלומים תואמים לסינון':'אין תשלומים')+'</td></tr>')+'</tbody></table></div>';
+    '<tbody>'+(rows || '<tr><td colspan="6" class="empty">'+(anyFilter?'אין תשלומים תואמים':'אין תשלומים')+'</td></tr>')+'</tbody></table></div>';
 }
 function openEditPay(id){
   const p = D.payments.filter(function(x){return x.id===id;})[0];
