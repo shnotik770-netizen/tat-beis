@@ -948,7 +948,7 @@ function renderStudentsResults(){
       groupHdr = '<tr class="grp-sep"><td colspan="6">('+groupSizes[g]+') כיתה '+(s.class||'—')+(s.institution?' · מוסד '+s.institution:'')+'</td></tr>';
       lastGroup = g;
     }
-    return groupHdr + '<tr class="cr" onclick=\'openLedger("'+s.id+'")\'><td>'+s.lastName+' '+s.firstName+(debt>0?' <span class="badge rd">₪'+debt.toLocaleString()+'</span>':'')+'</td>' +
+    return groupHdr + '<tr class="cr" onclick=\'openLedger("'+s.id+'")\'><td>'+s.lastName+' '+s.firstName+(debt>0?' <span class="badge rd" title="חוב משפחתי">👨‍👩‍👧 ₪'+debt.toLocaleString()+'</span>':'')+'</td>' +
       '<td><span class="badge">'+(classKey(s)||'—')+'</span></td>' +
       '<td>'+(s.dadName||s.momName?'<span class="badge gr">✓</span>':'<span class="t2">—</span>')+'</td>' +
       '<td>'+(sibs.length?sibs.map(function(x){return '<span class="badge am">'+x.firstName+'</span>';}).join(' '):'—')+'</td>' +
@@ -1127,13 +1127,10 @@ function renderExportStudents(){
 // בונה דוח מודפס של כל הילדים שלמשפחתם יש חוב פתוח (allDebts כבר מסננת ברמת המשפחה, לא אישית),
 // מקובץ מוסד ← כיתה, ועם פירוט מלא של הדרישות והתשלומים האישיים של כל ילד מתחתיו.
 // שלב 1: לפני ההדפסה בפועל, מבקשים אילו מוסדות וכיתות לכלול בדוח (הכל מסומן כברירת מחדל)
-// חובות שנכנסים לדוח: חוב משפחתי של עד 1 ש"ח (כולל) נחשב זניח ולא נכלל בדוח
-function debtReportList(){
-  return allDebts().filter(function(s){ return familyNetDebt(clientFamilyIds(s.id))>1; });
-}
+// allDebts() כבר מסננת חוב זניח (עד ₪2, ראו familyNetDebt) — אין צורך בסינון סף נוסף כאן
 function openDebtReportPDF(){
-  const debts = debtReportList();
-  if(!debts.length){ toast('אין תלמידים עם חוב פתוח מעל ₪1','ok'); return; }
+  const debts = allDebts();
+  if(!debts.length){ toast('אין תלמידים עם חוב פתוח','ok'); return; }
   const insts = [...new Set(debts.map(function(s){ return s.institution||'ללא מוסד'; }))].sort(function(a,b){ return a.localeCompare(b,'he'); });
   const classes = [...new Set(debts.map(function(s){ return s.class||'ללא כיתה'; }))].sort(function(a,b){ return a.localeCompare(b,'he'); });
   const instChips = insts.map(function(i){ return '<span class="chip on" onclick="this.classList.toggle(\'on\')" data-id="'+esc(i)+'">'+esc(i)+'</span>'; }).join('');
@@ -1150,7 +1147,7 @@ function genDebtReportPDF(){
   const selInsts = pickedChips('rptInstChips');
   const selClasses = pickedChips('rptClsChips');
   if(!selInsts.length || !selClasses.length){ toast('נא לבחור לפחות מוסד אחד וכיתה אחת','err'); return; }
-  const debts = debtReportList().filter(function(s){
+  const debts = allDebts().filter(function(s){
     const inst = s.institution||'ללא מוסד', cls = s.class||'ללא כיתה';
     return selInsts.indexOf(inst)>-1 && selClasses.indexOf(cls)>-1;
   });
@@ -1189,22 +1186,29 @@ function genDebtReportPDF(){
 }
 function buildDebtReportStudentBlock(s){
   const famDebt = Math.round(familyNetDebt(clientFamilyIds(s.id)));
+  const famIds = clientFamilyIds(s.id);
+  const nameById = {};
+  D.students.forEach(function(x){ if(famIds.indexOf(x.id)>-1) nameById[x.id] = x.firstName+' '+x.lastName; });
   const demandRows = D.demands.filter(function(d){ return d.studentIds.indexOf(s.id)>-1; }).map(function(d){
     const paid = paidOnDem(s.id, d.id);
     const bal = Math.max(0, d.amount-paid);
     return '<tr><td>'+esc(d.title)+'</td><td>₪'+d.amount.toLocaleString()+'</td><td>₪'+Math.round(paid).toLocaleString()+'</td><td>₪'+Math.round(bal).toLocaleString()+'</td></tr>';
   }).join('');
-  const paymentRows = D.payments.filter(function(p){ return p.studentIds.indexOf(s.id)>-1; }).map(function(p){
-    const a = p.amounts[s.id];
-    const share = (a!==undefined) ? parseFloat(a)||0 : p.total/Math.max(p.studentIds.length,1);
-    return '<tr><td>'+esc(p.date)+'</td><td>'+esc(p.payer||'—')+'</td><td>'+esc(p.method||'—')+'</td><td>₪'+Math.round(share).toLocaleString()+'</td></tr>';
+  // זיכויים של כל בני המשפחה, לא רק תשלומים שנרשמו ישירות על שם הילד הזה — כדי שיהיה אפשר להבין
+  // את החשבון גם כשתשלום/זיכוי נרשם על שם אח/אחות אבל בפועל מכסה (כולו או חלקו) דרישה של הילד הזה
+  const paymentRows = D.payments.filter(function(p){
+    return p.studentIds.some(function(sid){ return famIds.indexOf(sid)>-1; });
+  }).map(function(p){
+    const relIds = p.studentIds.filter(function(sid){ return famIds.indexOf(sid)>-1; });
+    const forWhom = relIds.map(function(sid){ return nameById[sid]||''; }).filter(Boolean).join(', ');
+    return '<tr><td>'+esc(p.date)+'</td><td>'+esc(p.payer||'—')+'</td><td>'+esc(p.method||'—')+'</td><td>'+esc(forWhom)+'</td><td>₪'+Math.round(p.total).toLocaleString()+'</td></tr>';
   }).join('');
   return '<div class="rpt-student">' +
     '<div class="rpt-student-hdr"><strong>'+esc(s.lastName+' '+s.firstName)+'</strong><span>חוב משפחתי: ₪'+famDebt.toLocaleString()+'</span></div>' +
     '<div class="rpt-sub">📋 דרישות</div>' +
     '<table class="rpt-table"><thead><tr><th>כותרת</th><th>סכום</th><th>שולם</th><th>יתרה</th></tr></thead><tbody>'+(demandRows||'<tr><td colspan="4">אין דרישות</td></tr>')+'</tbody></table>' +
-    '<div class="rpt-sub">💳 זיכויים (תשלומים)</div>' +
-    '<table class="rpt-table"><thead><tr><th>תאריך</th><th>משלם</th><th>שיטה</th><th>סכום</th></tr></thead><tbody>'+(paymentRows||'<tr><td colspan="4">אין תשלומים</td></tr>')+'</tbody></table>' +
+    '<div class="rpt-sub">💳 זיכויים (תשלומי המשפחה)</div>' +
+    '<table class="rpt-table"><thead><tr><th>תאריך</th><th>משלם</th><th>שיטה</th><th>עבור</th><th>סכום</th></tr></thead><tbody>'+(paymentRows||'<tr><td colspan="5">אין תשלומים</td></tr>')+'</tbody></table>' +
   '</div>';
 }
 
@@ -2542,6 +2546,7 @@ let debtSortCol = 'oldest', debtSortDir = 'asc', debtViewMode = 'child';
 // חוב נטו ברמת המשפחה: סה"כ מה שנדרש מכל בני המשפחה מול סה"כ מה ששולם עבורם, לפני שמעגלים כל ילד
 // בנפרד ל-0. כך תשלום שלא פוצל בדיוק בין אחים (למשל תשלום כללי אחד שמכסה כמה ילדים) לא משאיר
 // "חוב" מדומה אצל מי מהם כל עוד המשפחה כולה שילמה את מה שנדרש ממנה.
+// חוב זניח (עד ₪2, כולל) נחשב מסולק בכל המערכת — לא יוצר תג/רישום/התראה, כדי שהפרשי עיגול לא יטרידו.
 function familyNetDebt(memberIds){
   let demanded = 0, paid = 0;
   memberIds.forEach(function(sid){
@@ -2551,7 +2556,8 @@ function familyNetDebt(memberIds){
     });
     paid += genCredit(sid);
   });
-  return Math.max(0, Math.round((demanded-paid)*100)/100);
+  const net = Math.round((demanded-paid)*100)/100;
+  return net>2 ? net : 0;
 }
 function buildFamilyDebtGroups(list){
   const seen = {};
