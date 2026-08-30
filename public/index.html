@@ -2363,6 +2363,29 @@ function updPayTot(){
   const tot = sids.reduce(function(s,sid){ const el=document.getElementById('pa_'+sid); return s+(el?parseFloat(el.value)||0:0); },0);
   const el = document.getElementById('payTotLbl'); if(el) el.textContent = '₪'+tot.toLocaleString();
 }
+// בודק אם למשפחה של התלמיד/ים שנבחרו כבר קיים תשלום רשום עם אותו סכום, אותה שיטת תשלום ואותו
+// תאריך בדיוק — כדי לתפוס הזנה כפולה בטעות (ברישום ידני או בשיוך תשלום ממתין)
+function findDuplicatePayment(studentIds, amount, method, dateDMY){
+  if(!studentIds || !studentIds.length || !amount || !dateDMY) return null;
+  const famIds = {};
+  studentIds.forEach(function(sid){ clientFamilyIds(sid).forEach(function(fid){ famIds[fid]=1; }); });
+  return D.payments.filter(function(p){
+    return p.date===dateDMY && (p.method||'')===(method||'') && Math.abs(p.total-amount)<0.01 &&
+      p.studentIds.some(function(sid){ return famIds[sid]; });
+  })[0] || null;
+}
+// מציג אזהרה אם נמצא תשלום דומה קיים; מחזיר true להמשך שמירה, false אם המשתמש ביטל
+function warnIfDuplicatePayment(studentIds, amount, method, dateDMY){
+  const dup = findDuplicatePayment(studentIds, amount, method, dateDMY);
+  if(!dup) return true;
+  const names = dup.studentIds.map(function(sid){
+    const s = D.students.filter(function(x){return x.id===sid;})[0];
+    return s ? s.firstName+' '+s.lastName : '';
+  }).filter(Boolean).join(', ');
+  return confirm('⚠️ נמצא במשפחה תשלום דומה שכבר קיים:\n₪'+amount.toLocaleString()+' · '+method+' · '+dateDMY+
+    (names?'\nעבור: '+names:'')+(dup.payer?' · שילם/ה '+dup.payer:'')+
+    '\n\nייתכן שזו כפילות. להמשיך ולרשום בכל זאת?');
+}
 function savePay() {
   const sids = pickedChips('payStChips');
   if(!sids.length){ toast('חובה לבחור תלמיד','err'); return; }
@@ -2373,6 +2396,11 @@ function savePay() {
     if(a>0){ amounts[sid]=a; hasAmt=true; }
   });
   if(!hasAmt){ toast('נא להזין סכום לפחות לתלמיד אחד','err'); return; }
+  const method = getMethod('payMethodChips');
+  const dateISO = v('p_date')||todayISO();
+  const dateDMY = dmyFromISO(dateISO);
+  const total = Object.keys(amounts).reduce(function(s,k){ return s+amounts[k]; },0);
+  if(!warnIfDuplicatePayment(sids, total, method, dateDMY)) return;
   // ממפים את כותרות הדרישות שנבחרו לשורות הדרישה הספציפיות של התלמידים שבאמת נכללים בתשלום הזה
   const selTitles = pickedDemTitles();
   const demandIds = [];
@@ -2380,7 +2408,7 @@ function savePay() {
     D.demands.filter(function(d){ return d.title===title && d.studentIds.some(function(sid){return sids.indexOf(sid)>-1;}); })
       .forEach(function(d){ if(demandIds.indexOf(d.id)===-1) demandIds.push(d.id); });
   });
-  const d = {studentIds:sids, demandIds: demandIds, amounts:amounts, payer:v('p_payer'), date: v('p_date')||todayISO(), method:getMethod('payMethodChips')};
+  const d = {studentIds:sids, demandIds: demandIds, amounts:amounts, payer:v('p_payer'), date: dateISO, method:method};
   google.script.run.withSuccessHandler(function(r){
     if(r&&!r.ok){ toast(r.err,'err'); return; }
     closeM(); toast('נרשם ✓','ok'); go('pay');
@@ -2708,6 +2736,7 @@ function quickAssignImp(pendingId, inputEl){
   if(!sid){ toast('יש לבחור תלמיד מתוך ההצעות המוצעות','err'); return; }
   const p = (D.pending||[]).filter(function(x){return x.id===pendingId;})[0];
   if(!p) return;
+  if(!warnIfDuplicatePayment([sid], p.amount, p.method||'מזומן', p.date)) return;
   const amounts = {}; amounts[sid] = p.amount;
   inputEl.disabled = true;
   google.script.run.withSuccessHandler(function(r){
@@ -2749,11 +2778,14 @@ function doAssignImp(pendingId){
   const sid = stEl ? stEl.getAttribute('data-selected-id') : null;
   const amt = parseFloat(v('ai_amt'))||0;
   if(!sid||!amt){ toast('נא לבחור תלמיד מהרשימה ולמלא סכום','err'); return; }
+  const method = getMethod('aiMethodChips');
+  const p = (D.pending||[]).filter(function(x){return x.id===pendingId;})[0];
+  if(!warnIfDuplicatePayment([sid], amt, method, p?p.date:'')) return;
   const amounts = {}; amounts[sid]=amt;
   google.script.run.withSuccessHandler(function(r){
     if(r&&!r.ok){ toast(r.err,'err'); return; }
     closeM(); toast('שוייך ✓','ok'); go('imp');
-  }).assignPendingPayment(pendingId, {studentIds:[sid], demandIds:[], amounts:amounts, method:getMethod('aiMethodChips')});
+  }).assignPendingPayment(pendingId, {studentIds:[sid], demandIds:[], amounts:amounts, method:method});
 }
 
 // ── Helpers ──
