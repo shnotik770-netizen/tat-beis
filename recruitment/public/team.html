@@ -27,6 +27,7 @@
   .topbar-logo{height:40px;width:auto;border-radius:8px;background:#fff;padding:3px;flex-shrink:0;object-fit:contain}
   .topbar h1{font-size:16px;margin:0;font-weight:700;line-height:1.3}
   .topbar .sub{font-size:12px;opacity:.75;margin-top:2px}
+  .topbar .sub-date{font-size:10px;opacity:.6;margin-top:1px}
   .topbar .me{display:flex;align-items:center;gap:8px}
   .topbar .me button{background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:20px;
     padding:6px 12px;font-size:13px}
@@ -119,6 +120,9 @@
     background:#fff;font-weight:600;font-size:13.5px;display:flex;justify-content:space-between;align-items:center}
   .status-opt.sel{border-color:var(--navy);background:#f5f6fb}
   .status-opt .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+  .mine-summary{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:12.5px;font-weight:700;color:var(--text)}
+  .mine-summary span{display:inline-flex;align-items:center;gap:5px}
+  .mine-summary .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
   .divider{border:none;border-top:1px solid var(--border);margin:16px 0}
   .timeline{display:flex;flex-direction:column;gap:0;margin-top:6px}
   .tl-item{display:flex;gap:10px;padding:6px 0;position:relative}
@@ -364,7 +368,10 @@
       '<div class="topbar">' +
         '<div style="display:flex;align-items:center;gap:10px">' +
           '<img src="/assets/logo.png" alt="עכשיו צומחים" class="topbar-logo">' +
-          '<div><h1>ערב שותפות — חב"ד עפולה</h1><div class="sub">שלום, ' + esc(state.me.name) + (state.me.isAdmin ? ' <span class="badge">מנהל</span>' : '') + ' · ' + esc(fmtHebrew(new Date())) + '</div></div>' +
+          '<div><h1>ערב שותפות — חב"ד עפולה</h1>' +
+            '<div class="sub">שלום, ' + esc(state.me.name) + (state.me.isAdmin ? ' <span class="badge">מנהל</span>' : '') + '</div>' +
+            '<div class="sub-date">' + esc(fmtHebrew(new Date())) + '</div>' +
+          '</div>' +
         '</div>' +
         '<div class="me"><button id="switch-btn">🔄 החלף זהות</button></div>' +
       '</div>' +
@@ -436,8 +443,20 @@
       }
 
       var cats = uniqueCats(contacts);
+      var mineSummary = '';
+      if (opts.scope === 'mine'){
+        var cInitial = contacts.filter(function(c){ return c.status === 'שיחה ראשונית'; }).length;
+        var cArriving = contacts.filter(function(c){ return c.status === 'מגיע לאירוע'; }).length;
+        var cNoContact = contacts.filter(function(c){ return !c.status; }).length;
+        mineSummary = '<div class="mine-summary">' +
+          '<span><span class="dot" style="background:' + STATUS_COLORS['שיחה ראשונית'] + '"></span>' + cInitial + ' שיחה ראשונית</span>' +
+          '<span><span class="dot" style="background:' + STATUS_COLORS['מגיע לאירוע'] + '"></span>' + cArriving + ' מגיעים לאירוע</span>' +
+          '<span><span class="dot" style="background:#9ca3af"></span>' + cNoContact + ' לא נוצר קשר</span>' +
+        '</div>';
+      }
       content.innerHTML =
         '<div class="sec-title">' + opts.title + ' <span class="count-pill" id="count-pill">' + contacts.length + '</span></div>' +
+        mineSummary +
         '<div class="toolbar">' +
           '<input id="f-q" placeholder="חיפוש שם / טלפון">' +
           '<select id="f-sort">' +
