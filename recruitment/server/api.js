@@ -267,7 +267,12 @@ router.post('/contacts/:id/status', requireAuth, ah(loadContactForEdit), ah(asyn
   } else {
     if (!STATUSES.includes(status)) return res.status(400).json({ error: 'סטטוס לא מוכר' });
     await pool.query('INSERT INTO status_history (contact_id, status, changed_by) VALUES ($1, $2, $3)', [req.params.id, status, req.ambassador.id]);
-    await pool.query('UPDATE contacts SET status = $1, updated_at = now() WHERE id = $2', [status, req.params.id]);
+    // מי שמעדכן סטטוס לאיש קשר שעדיין לא משויך לאף שגריר — משויך אליו אוטומטית
+    if (!req.contact.ambassador_id) {
+      await pool.query('UPDATE contacts SET status = $1, ambassador_id = $2, updated_at = now() WHERE id = $3', [status, req.ambassador.id, req.params.id]);
+    } else {
+      await pool.query('UPDATE contacts SET status = $1, updated_at = now() WHERE id = $2', [status, req.params.id]);
+    }
   }
   const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);
   res.json(shapeContact(rows[0]));

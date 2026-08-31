@@ -445,6 +445,7 @@
         '<div id="bulk-bar" class="toolbar" style="display:none;align-items:center;background:#eef1f5;border-radius:10px;padding:8px 10px">' +
           '<span id="bulk-count" style="font-weight:700;font-size:12.5px;flex:0"></span>' +
           ((opts.scope === 'unassigned' || opts.scope === 'all') ? '<button class="btn btn-gold btn-sm" id="bulk-claim" style="flex:0">✋ קח לרשימה שלי</button>' : '') +
+          ((opts.scope === 'mine' || opts.scope === 'unassigned' || opts.scope === 'all') ? '<button class="btn btn-outline btn-sm" id="bulk-status" style="flex:0">🔄 עדכון סטטוס</button>' : '') +
           '<button class="btn btn-outline btn-sm" id="bulk-cat" style="flex:0">🏷️ סיווג נבחרים</button>' +
           '<button class="btn btn-danger btn-sm" id="bulk-del" style="flex:0">🗑️ מחיקת נבחרים</button>' +
           '<button class="btn btn-outline btn-sm" id="bulk-clear" style="flex:0">ביטול</button>' +
@@ -478,6 +479,19 @@
             }
           });
           if (skippedCount) alert('נלקחו ' + claimedCount + ' אנשי קשר לרשימה שלך. ' + skippedCount + ' לא נלקחו (כבר משויכים לשגריר אחר).');
+          draw();
+        });
+      };
+      if (content.querySelector('#bulk-status')) content.querySelector('#bulk-status').onclick = function(){
+        var ids = Object.keys(selected);
+        if (!ids.length) return;
+        openBulkStatusDialog(ids, function(results){
+          results.forEach(function(r){
+            if (r.ok){
+              var idx = contacts.findIndex(function(c){ return String(c.id) === r.id; });
+              if (idx > -1) contacts[idx] = r.updated;
+            }
+          });
           draw();
         });
       };
@@ -670,6 +684,42 @@
       '<div class="badges">' + categoriesBadges(c) + statusBadge + ambBadge + candidateBadge + selfBadge + '</div>' +
       actionsHtml +
     '</div>';
+  }
+
+  // ===================== עדכון סטטוס מרוכז לנבחרים =====================
+  function openBulkStatusDialog(ids, onApplied){
+    var overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.innerHTML = '<div class="sheet"></div>';
+    document.body.appendChild(overlay);
+    overlay.onclick = function(e){ if (e.target === overlay) overlay.remove(); };
+    var sheet = overlay.querySelector('.sheet');
+
+    sheet.innerHTML =
+      '<div class="sheet-head"><h3>עדכון סטטוס ל-' + ids.length + ' נבחרים</h3><button class="close-x" id="bs-close">✕</button></div>' +
+      '<div class="hint" style="margin-bottom:10px">מי מהנבחרים שעדיין לא משויך לשגריר — ישויך אוטומטית אליכם.</div>' +
+      '<div class="status-grid">' + state.statuses.map(function(s){
+        return '<button class="status-opt" data-bs-status="' + esc(s) + '">' +
+          '<span>' + esc(s) + '</span><span class="dot" style="background:' + STATUS_COLORS[s] + '"></span></button>';
+      }).join('') + '</div>' +
+      '<button class="btn btn-outline btn-sm" id="bs-clear" style="width:100%;margin-top:8px">❌ ביטול סימון סטטוס לנבחרים</button>';
+
+    sheet.querySelector('#bs-close').onclick = function(){ overlay.remove(); };
+
+    function apply(status){
+      Promise.all(ids.map(function(id){
+        return api('/contacts/' + id + '/status', {method:'POST', body: JSON.stringify({status:status})})
+          .then(function(updated){ return {id:id, ok:true, updated:updated}; })
+          .catch(function(e){ return {id:id, ok:false, error:e.message}; });
+      })).then(function(results){
+        overlay.remove();
+        onApplied(results);
+      });
+    }
+    Array.prototype.forEach.call(sheet.querySelectorAll('[data-bs-status]'), function(btn){
+      btn.onclick = function(){ apply(btn.getAttribute('data-bs-status')); };
+    });
+    sheet.querySelector('#bs-clear').onclick = function(){ apply(null); };
   }
 
   // ===================== סיווג מרוכז לנבחרים (רשימת סימון) =====================
