@@ -1196,7 +1196,8 @@ function buildDebtReportStudentBlock(s){
     d.studentIds.filter(function(sid){ return famIds.indexOf(sid)>-1; }).forEach(function(sid){
       const paid = paidOnDem(sid, d.id);
       const bal = Math.max(0, d.amount-paid);
-      demandRowsArr.push('<tr><td>'+esc(d.title)+'</td><td>'+esc(nameById[sid]||'')+'</td><td>₪'+d.amount.toLocaleString()+'</td><td>₪'+Math.round(paid).toLocaleString()+'</td><td>₪'+Math.round(bal).toLocaleString()+'</td></tr>');
+      // אין עמודת "שולם" — הפירוט המלא של מה ששולם כבר מופיע למטה בטבלת הזיכויים
+      demandRowsArr.push('<tr><td>'+esc(d.title)+'</td><td>'+esc(nameById[sid]||'')+'</td><td>₪'+d.amount.toLocaleString()+'</td><td>₪'+Math.round(bal).toLocaleString()+'</td></tr>');
     });
   });
   const demandRows = demandRowsArr.join('');
@@ -1212,7 +1213,7 @@ function buildDebtReportStudentBlock(s){
   return '<div class="rpt-student">' +
     '<div class="rpt-student-hdr"><strong>'+esc(s.lastName+' '+s.firstName)+'</strong><span>חוב משפחתי: ₪'+famDebt.toLocaleString()+'</span></div>' +
     '<div class="rpt-sub">📋 דרישות (המשפחה)</div>' +
-    '<table class="rpt-table"><thead><tr><th>כותרת</th><th>עבור</th><th>סכום</th><th>שולם</th><th>יתרה</th></tr></thead><tbody>'+(demandRows||'<tr><td colspan="5">אין דרישות</td></tr>')+'</tbody></table>' +
+    '<table class="rpt-table"><thead><tr><th>כותרת</th><th>עבור</th><th>סכום</th><th>יתרה</th></tr></thead><tbody>'+(demandRows||'<tr><td colspan="4">אין דרישות</td></tr>')+'</tbody></table>' +
     '<div class="rpt-sub">💳 זיכויים (תשלומי המשפחה)</div>' +
     '<table class="rpt-table"><thead><tr><th>תאריך</th><th>משלם</th><th>שיטה</th><th>עבור</th><th>סכום</th></tr></thead><tbody>'+(paymentRows||'<tr><td colspan="5">אין תשלומים</td></tr>')+'</tbody></table>' +
   '</div>';
