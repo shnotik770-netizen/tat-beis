@@ -269,6 +269,20 @@
     } catch(e){ return ''; }
   }
 
+  // ספירה לאחור לאירוע — ימים עד 48 שעות לפני, ואז שעות
+  var EVENT_DATE = new Date(2026, 8, 8, 20, 30, 0); // יום שלישי, כ"ו אלול, 8.9.2026, בשעה 20:30
+  function eventCountdownText(){
+    var diffMs = EVENT_DATE - new Date();
+    if (diffMs <= 0) return 'האירוע התקיים 🎉';
+    var hoursLeft = diffMs / 3600000;
+    if (hoursLeft <= 48){
+      var h = Math.max(1, Math.ceil(hoursLeft));
+      return 'עוד ' + (h === 1 ? 'שעה' : h + ' שעות') + ' לאירוע!';
+    }
+    var d = Math.ceil(hoursLeft / 24);
+    return 'עוד ' + (d === 1 ? 'יום' : d + ' ימים') + ' לאירוע';
+  }
+
   function fmtDate(iso){
     if (!iso) return '';
     var d = new Date(iso);
@@ -370,7 +384,7 @@
           '<img src="/assets/logo.png" alt="עכשיו צומחים" class="topbar-logo">' +
           '<div><h1>ערב שותפות — חב"ד עפולה</h1>' +
             '<div class="sub">שלום, ' + esc(state.me.name) + (state.me.isAdmin ? ' <span class="badge">מנהל</span>' : '') + '</div>' +
-            '<div class="sub-date">' + esc(fmtHebrew(new Date())) + '</div>' +
+            '<div class="sub-date">' + esc(eventCountdownText()) + '</div>' +
           '</div>' +
         '</div>' +
         '<div class="me"><button id="switch-btn">🔄 החלף זהות</button></div>' +
