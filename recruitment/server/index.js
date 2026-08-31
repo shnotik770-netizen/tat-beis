@@ -4,7 +4,31 @@ const { pool, migrate } = require('./db');
 const apiRouter = require('./api');
 
 const app = express();
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '8mb' })); // כולל מקום לתמונות לוגו/הזמנה בבסיס 64 שמנהל קמפיין מעלה
+
+// לוגו ותמונת ההזמנה — אם מנהל קמפיין העלה גרסה מותאמת (שמורה ב-DB, לא בדיסק המקומי
+// שנמחק בכל פריסה מחדש), מגישים אותה; אחרת נופלים לקובץ ברירת המחדל ב-public/assets
+app.get('/assets/logo.png', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT logo_image, logo_image_type FROM campaign_settings WHERE id = 1');
+    if (rows[0] && rows[0].logo_image) {
+      res.set('Content-Type', rows[0].logo_image_type || 'image/png');
+      return res.send(rows[0].logo_image);
+    }
+  } catch (e) { /* נופלים לקובץ הסטטי */ }
+  next();
+});
+app.get('/assets/save-the-date.jpg', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query('SELECT hero_image, hero_image_type FROM campaign_settings WHERE id = 1');
+    if (rows[0] && rows[0].hero_image) {
+      res.set('Content-Type', rows[0].hero_image_type || 'image/jpeg');
+      return res.send(rows[0].hero_image);
+    }
+  } catch (e) { /* נופלים לקובץ הסטטי */ }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api', apiRouter);
 

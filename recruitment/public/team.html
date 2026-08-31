@@ -204,6 +204,7 @@
     categories: [],
     statuses: [],
     ambassadors: [],
+    campaignSettings: null,
     busy: false
   };
 
@@ -269,10 +270,13 @@
     } catch(e){ return ''; }
   }
 
-  // ספירה לאחור לאירוע — ימים עד 48 שעות לפני, ואז שעות
-  var EVENT_DATE = new Date(2026, 8, 8, 20, 30, 0); // יום שלישי, כ"ו אלול, 8.9.2026, בשעה 20:30
+  // ספירה לאחור לאירוע — ימים עד 48 שעות לפני, ואז שעות. תאריך ברירת המחדל משמש
+  // רק כל עוד הגדרות הקמפיין לא נטענו עדיין; אחרי הטעינה נלקח event_datetime מה-DB.
+  var EVENT_DATE_FALLBACK = new Date(2026, 8, 8, 20, 30, 0); // יום שלישי, כ"ו אלול, 8.9.2026, בשעה 20:30
   function eventCountdownText(){
-    var diffMs = EVENT_DATE - new Date();
+    var eventDate = (state.campaignSettings && state.campaignSettings.eventDatetime)
+      ? new Date(state.campaignSettings.eventDatetime) : EVENT_DATE_FALLBACK;
+    var diffMs = eventDate - new Date();
     if (diffMs <= 0) return 'האירוע התקיים 🎉';
     var hoursLeft = diffMs / 3600000;
     if (hoursLeft <= 48){
@@ -294,10 +298,14 @@
   // ===================== BOOT =====================
   // אין מסך התחברות — בוחרים "מי אני" מרשימת השגרירים הקיימת, וזה נשמר במכשיר
   function boot(){
-    api('/ambassadors').then(function(ambs){
-      state.ambassadors = ambs;
+    Promise.all([
+      api('/ambassadors'),
+      api('/campaign-settings').catch(function(){ return null; })
+    ]).then(function(res){
+      state.ambassadors = res[0];
+      state.campaignSettings = res[1];
       var savedId = localStorage.getItem('gius_ambassador_id');
-      var found = savedId && ambs.find(function(a){ return String(a.id) === savedId; });
+      var found = savedId && state.ambassadors.find(function(a){ return String(a.id) === savedId; });
       if (found){
         state.me = found;
         loadShared().then(renderApp);
@@ -331,24 +339,30 @@
         '<div class="hint">אם השם שלך לא מופיע — בקש מהמנהל להוסיף אותך ברשימת השגרירים.</div>' +
       '</div></div>';
 
+    var loginMode = state.campaignSettings ? state.campaignSettings.loginMode : 'none';
+
     function draw(){
       var q = (app.querySelector('#pk-search') ? app.querySelector('#pk-search').value : '').trim().toLowerCase();
       var filtered = ambs.filter(function(a){ return !q || a.name.toLowerCase().indexOf(q) > -1; });
       var list = app.querySelector('#pk-list');
       list.innerHTML = filtered.map(function(a){
+        var badges = (a.isCampaignManager ? '<span class="badge" style="background:#7c3aed;color:#fff">⭐ מנהל קמפיין</span>' : '') +
+          (a.isAdmin ? '<span class="badge" style="background:var(--gold);color:#3a2a04">מנהל שגרירים</span>' : '');
         return '<button class="btn btn-outline" data-pick="' + a.id + '" style="text-align:right;justify-content:space-between;display:flex">' +
-          '<span>' + esc(a.name) + '</span>' + (a.isAdmin ? '<span class="badge" style="background:var(--gold);color:#3a2a04">מנהל</span>' : '') +
+          '<span>' + esc(a.name) + '</span><span style="display:flex;gap:4px">' + badges + '</span>' +
         '</button>';
       }).join('') || '<div class="hint">לא נמצאו שגרירים בשם הזה.</div>';
       Array.prototype.forEach.call(list.querySelectorAll('[data-pick]'), function(btn){
         btn.onclick = function(){
           var amb = ambs.find(function(a){ return String(a.id) === btn.getAttribute('data-pick'); });
-          if (!amb.isAdmin){
+          var needsPin = amb.isAdmin || loginMode !== 'none';
+          if (!needsPin){
             setIdentity(amb);
             loadShared().then(renderApp);
             return;
           }
-          var pin = window.prompt('גישת מנהל — הזינו קוד גישה:');
+          var promptText = loginMode === 'shared' ? 'הזינו את קוד הגישה המשותף:' : 'הזינו קוד גישה:';
+          var pin = window.prompt(promptText);
           if (pin === null) return;
           api('/ambassadors/' + amb.id + '/verify-pin', {method:'POST', body: JSON.stringify({pin:pin})}).then(function(){
             setIdentity(amb);
@@ -382,8 +396,10 @@
       '<div class="topbar">' +
         '<div style="display:flex;align-items:center;gap:10px">' +
           '<img src="/assets/logo.png" alt="עכשיו צומחים" class="topbar-logo">' +
-          '<div><h1>ערב שותפות — חב"ד עפולה</h1>' +
-            '<div class="sub">שלום, ' + esc(state.me.name) + (state.me.isAdmin ? ' <span class="badge">מנהל</span>' : '') + '</div>' +
+          '<div><h1>' + esc((state.campaignSettings && state.campaignSettings.eventName) || 'ערב שותפות') + ' — חב"ד עפולה</h1>' +
+            '<div class="sub">שלום, ' + esc(state.me.name) +
+              (state.me.isCampaignManager ? ' <span class="badge" style="background:#7c3aed">⭐ מנהל קמפיין</span>' : (state.me.isAdmin ? ' <span class="badge">מנהל שגרירים</span>' : '')) +
+            '</div>' +
             '<div class="sub-date">' + esc(eventCountdownText()) + '</div>' +
           '</div>' +
         '</div>' +
@@ -954,8 +970,10 @@
     pOverlay.onclick = function(e){ if (e.target === pOverlay) pOverlay.remove(); };
   }
 
-  // מקומות ישיבה מוסתרים כרגע לפי בקשה — השדות/השרת נשארים זמינים לשימוש עתידי
-  var SHOW_SEATING = false;
+  // מקומות ישיבה מוצגים רק אם מנהל קמפיין הפעיל אותם בהגדרות הקמפיין
+  function seatingEnabled(){
+    return !!(state.campaignSettings && state.campaignSettings.seatingEnabled);
+  }
 
   // שם ההזמנה (מוצג ליד עדכון הפרטים האישיים) ושאר אפשרויות ההזמנה (קישור/שמירה) —
   // שני חלקים נפרדים שמוצגים במקומות שונים בכרטיס לפי בקשת הסידור.
@@ -969,7 +987,7 @@
   function renderInviteOptions(contact){
     var link = window.location.origin + '/invite/' + contact.inviteToken;
     return (
-      (SHOW_SEATING ?
+      (seatingEnabled() ?
         '<div class="form-row2">' +
           '<div class="field"><label>מקום ישיבה</label><input id="e-seat" value="' + esc(contact.seatNumber || '') + '" placeholder="A12"></div>' +
           '<div class="field"><label>מקום ישיבה לבן/בת הזוג</label><input id="e-cseat" value="' + esc(contact.companionSeatNumber || '') + '" placeholder="A13"></div>' +
@@ -1498,6 +1516,7 @@
         '<button data-at="ambassadors" class="' + (state.adminTab==='ambassadors'?'active':'') + '">שגרירים</button>' +
         '<button data-at="categories" class="' + (state.adminTab==='categories'?'active':'') + '">קטגוריות</button>' +
         '<button data-at="import" class="' + (state.adminTab==='import'?'active':'') + '">ייבוא</button>' +
+        (state.me.isCampaignManager ? '<button data-at="settings" class="' + (state.adminTab==='settings'?'active':'') + '">⭐ הגדרות קמפיין</button>' : '') +
       '</div>' +
       '<div class="hint" style="margin-bottom:12px">לצפייה בכל אנשי הקשר ולשיוך מחדש לשגריר — לשונית "הכל" בתפריט התחתון.</div>' +
       '<button class="btn btn-outline btn-sm" id="export-xlsx" style="margin-bottom:14px">📥 ייצוא כל אנשי הקשר לאקסל</button>' +
@@ -1528,19 +1547,146 @@
     if (state.adminTab === 'ambassadors') renderAdminAmbassadors(body);
     else if (state.adminTab === 'categories') renderAdminCategories(body);
     else if (state.adminTab === 'import') renderAdminImport(body);
+    else if (state.adminTab === 'settings' && state.me.isCampaignManager) renderAdminSettings(body);
+  }
+
+  // ===================== הגדרות קמפיין — מנהל קמפיין בלבד =====================
+  function renderAdminSettings(body){
+    api('/campaign-settings').then(function(s){
+      state.campaignSettings = s;
+      body.innerHTML =
+        '<div class="sec-title">הפעלה/כיבוי תכונות</div>' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:13.5px;margin-bottom:10px">' +
+          '<input type="checkbox" id="cs-rsvp" ' + (s.rsvpEnabled ? 'checked' : '') + '> אישורי הגעה פעילים (עמוד ההזמנה האישית)</label>' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:13.5px;margin-bottom:16px">' +
+          '<input type="checkbox" id="cs-seating" ' + (s.seatingEnabled ? 'checked' : '') + '> מקומות ישיבה פעילים (בכרטיס איש הקשר)</label>' +
+
+        '<hr class="divider">' +
+        '<div class="sec-title">כניסה למערכת</div>' +
+        '<div class="field"><label>מצב כניסה</label><select id="cs-login">' +
+          '<option value="none" ' + (s.loginMode==='none'?'selected':'') + '>ללא סיסמה לשגרירים (ברירת מחדל — רק למנהלים יש קוד)</option>' +
+          '<option value="shared" ' + (s.loginMode==='shared'?'selected':'') + '>סיסמת ברירת מחדל אחת לכולם</option>' +
+          '<option value="per_user" ' + (s.loginMode==='per_user'?'selected':'') + '>סיסמה אישית לכל משתמש</option>' +
+        '</select></div>' +
+        '<div class="field" id="cs-sharedpin-wrap" style="display:none"><label>סיסמת ברירת מחדל (להשארה ריקה = לא לשנות)</label><input id="cs-sharedpin" type="tel" inputmode="numeric"></div>' +
+
+        '<hr class="divider">' +
+        '<div class="sec-title">פרטי האירוע</div>' +
+        '<div class="field"><label>שם האירוע</label><input id="cs-name" value="' + esc(s.eventName || '') + '"></div>' +
+        '<div class="field"><label>כותרת שיווקית (Tagline)</label><input id="cs-tagline" value="' + esc(s.eventTagline || '') + '"></div>' +
+        '<div class="field"><label>תיאור תאריך/שעה (טקסט חופשי)</label><input id="cs-datetext" value="' + esc(s.eventDateText || '') + '"></div>' +
+        '<div class="field"><label>תאריך ושעה מדוייקים (לספירה לאחור)</label><input id="cs-datetime" type="datetime-local" value="' + esc(toDatetimeLocal(s.eventDatetime)) + '"></div>' +
+        '<div class="field"><label>מיקום</label><input id="cs-location" value="' + esc(s.eventLocation || '') + '"></div>' +
+
+        '<hr class="divider">' +
+        '<div class="sec-title">לוגו ותמונת ההזמנה</div>' +
+        '<div class="field"><label>לוגו (בפינת הכותרת)</label>' +
+          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">' +
+            '<img src="/assets/logo.png?t=' + Date.now() + '" style="height:36px;border-radius:6px;background:#fff;padding:2px">' +
+            (s.hasCustomLogo ? '<button class="link-btn danger" id="cs-logo-remove">הסרת התאמה אישית</button>' : '<span class="hint" style="margin:0">ברירת מחדל</span>') +
+          '</div>' +
+          '<input type="file" id="cs-logo-file" accept="image/*"></div>' +
+        '<div class="field" style="margin-top:14px"><label>תמונת "Save the Date" (בראש עמוד ההזמנה)</label>' +
+          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">' +
+            '<img src="/assets/save-the-date.jpg?t=' + Date.now() + '" style="height:60px;border-radius:6px">' +
+            (s.hasCustomHero ? '<button class="link-btn danger" id="cs-hero-remove">הסרת התאמה אישית</button>' : '<span class="hint" style="margin:0">ברירת מחדל</span>') +
+          '</div>' +
+          '<input type="file" id="cs-hero-file" accept="image/*"></div>' +
+
+        '<div id="cs-msg" style="margin-top:14px"></div>' +
+        '<button class="btn btn-gold" id="cs-save" style="margin-top:4px">💾 שמירת הגדרות</button>';
+
+      function updateSharedPinVisibility(){
+        body.querySelector('#cs-sharedpin-wrap').style.display = body.querySelector('#cs-login').value === 'shared' ? 'block' : 'none';
+      }
+      updateSharedPinVisibility();
+      body.querySelector('#cs-login').onchange = updateSharedPinVisibility;
+
+      body.querySelector('#cs-save').onclick = function(){
+        var msg = body.querySelector('#cs-msg');
+        var loginMode = body.querySelector('#cs-login').value;
+        var sharedPin = body.querySelector('#cs-sharedpin').value.trim();
+        if (loginMode === 'shared' && !sharedPin && !s.hasSharedPin) {
+          msg.innerHTML = '<div class="err">יש להגדיר סיסמת ברירת מחדל</div>';
+          return;
+        }
+        var payload = {
+          rsvpEnabled: body.querySelector('#cs-rsvp').checked,
+          seatingEnabled: body.querySelector('#cs-seating').checked,
+          loginMode: loginMode,
+          eventName: body.querySelector('#cs-name').value.trim(),
+          eventTagline: body.querySelector('#cs-tagline').value.trim(),
+          eventDateText: body.querySelector('#cs-datetext').value.trim(),
+          eventDatetime: fromDatetimeLocal(body.querySelector('#cs-datetime').value),
+          eventLocation: body.querySelector('#cs-location').value.trim()
+        };
+        if (sharedPin) payload.sharedPin = sharedPin;
+        api('/campaign-settings', {method:'PATCH', body: JSON.stringify(payload)}).then(function(){
+          msg.innerHTML = '<div class="ok-msg">נשמר בהצלחה ✔️</div>';
+          renderAdminSettings(body);
+        }).catch(function(e){ msg.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
+      };
+
+      function uploadImage(fileInput, endpoint, onDone){
+        var file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(){
+          var base64 = reader.result.split(',')[1];
+          api(endpoint, {method:'POST', body: JSON.stringify({imageBase64: base64, mimeType: file.type})})
+            .then(onDone).catch(function(e){ alert(e.message); });
+        };
+        reader.readAsDataURL(file);
+      }
+      body.querySelector('#cs-logo-file').onchange = function(){
+        uploadImage(this, '/campaign-settings/logo', function(){ renderAdminSettings(body); });
+      };
+      body.querySelector('#cs-hero-file').onchange = function(){
+        uploadImage(this, '/campaign-settings/hero', function(){ renderAdminSettings(body); });
+      };
+      if (body.querySelector('#cs-logo-remove')) body.querySelector('#cs-logo-remove').onclick = function(){
+        api('/campaign-settings/logo', {method:'DELETE'}).then(function(){ renderAdminSettings(body); }).catch(function(e){ alert(e.message); });
+      };
+      if (body.querySelector('#cs-hero-remove')) body.querySelector('#cs-hero-remove').onclick = function(){
+        api('/campaign-settings/hero', {method:'DELETE'}).then(function(){ renderAdminSettings(body); }).catch(function(e){ alert(e.message); });
+      };
+    }).catch(function(e){ body.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
+  }
+
+  // ממיר timestamp מה-DB לפורמט input[type=datetime-local] (בזמן מקומי), ובחזרה ל-ISO עם אזור זמן
+  function toDatetimeLocal(iso){
+    if (!iso) return '';
+    var d = new Date(iso);
+    var pad = function(n){ return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function fromDatetimeLocal(v){
+    if (!v) return null;
+    return new Date(v).toISOString();
   }
 
   function renderAdminAmbassadors(body){
     api('/ambassadors').then(function(ambs){
       state.ambassadors = ambs;
+      var loginMode = state.campaignSettings ? state.campaignSettings.loginMode : 'none';
+      var iAmCampaignManager = !!state.me.isCampaignManager;
+
       body.innerHTML =
-        '<table class="simple"><thead><tr><th>שם</th><th>טלפון</th><th>אנשי קשר</th><th>מנהל</th><th></th></tr></thead><tbody>' +
+        '<table class="simple"><thead><tr><th>שם</th><th>טלפון</th><th>אנשי קשר</th><th>תפקיד</th><th></th></tr></thead><tbody>' +
         ambs.map(function(a){
+          var roleCell = iAmCampaignManager
+            ? ('<select data-role="' + a.id + '" ' + (a.id === state.me.id ? 'disabled title="לא ניתן לשנות הרשאה לעצמך"' : '') + '>' +
+                '<option value="none" ' + (!a.isAdmin ? 'selected' : '') + '>שגריר</option>' +
+                '<option value="admin" ' + (a.isAdmin && !a.isCampaignManager ? 'selected' : '') + '>מנהל שגרירים</option>' +
+                '<option value="campaign" ' + (a.isCampaignManager ? 'selected' : '') + '>⭐ מנהל קמפיין</option>' +
+              '</select>')
+            : (a.isCampaignManager ? '⭐ מנהל קמפיין' : (a.isAdmin ? 'מנהל שגרירים' : ''));
+          var showRepin = a.isAdmin || loginMode === 'per_user';
           return '<tr><td>' + esc(a.name) + '</td><td>' + esc(a.phone || '—') + '</td><td>' + a.contactCount + '</td>' +
-            '<td>' + (a.isAdmin ? '✔️' : '') + '</td>' +
+            '<td>' + roleCell + '</td>' +
             '<td>' +
               '<button class="link-btn" data-rename="' + a.id + '">✏️ שם</button> ' +
-              (a.isAdmin ? '<button class="link-btn" data-repin="' + a.id + '">🔑 קוד</button> ' : '') +
+              (showRepin ? '<button class="link-btn" data-repin="' + a.id + '">🔑 קוד' + (a.hasPin ? '' : ' (חסר)') + '</button> ' : '') +
               (a.id !== state.me.id ? '<button class="link-btn danger" data-del="' + a.id + '">מחיקה</button>' : '') +
             '</td></tr>';
         }).join('') + '</tbody></table>' +
@@ -1548,15 +1694,30 @@
         '<div class="sec-title">הוספת שגריר חדש</div>' +
         '<div class="field"><label>שם *</label><input id="na-name"></div>' +
         '<div class="field"><label>טלפון</label><input id="na-phone" type="tel"></div>' +
-        '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:12px">' +
-          '<input type="checkbox" id="na-admin"> הרשאת מנהל</label>' +
-        '<div class="field" id="na-pin-wrap" style="display:none"><label>קוד גישה (למנהל בלבד) *</label><input id="na-pin" type="tel" inputmode="numeric"></div>' +
+        (iAmCampaignManager ?
+          '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px">' +
+            '<input type="checkbox" id="na-admin"> הרשאת מנהל שגרירים</label>' +
+          '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:12px">' +
+            '<input type="checkbox" id="na-campaign"> ⭐ הרשאת מנהל קמפיין</label>'
+          : '') +
+        '<div class="field" id="na-pin-wrap" style="display:none"><label>קוד גישה *</label><input id="na-pin" type="tel" inputmode="numeric"></div>' +
         '<div id="na-msg"></div>' +
         '<button class="btn btn-gold" id="na-submit">➕ הוספת שגריר</button>' +
-        '<div class="hint">לשגריר רגיל אין קוד כניסה בכלל — מוסיפים שם ומיד אפשר לבחור אותו ממסך "מי אתה?". רק למנהל יש קוד גישה.</div>';
+        '<div class="hint">' + (loginMode === 'per_user'
+          ? 'מצב הכניסה הנוכחי דורש קוד גישה אישי לכל שגריר.'
+          : 'לשגריר רגיל אין קוד כניסה בכלל — מוסיפים שם ומיד אפשר לבחור אותו ממסך "מי אתה?". רק למנהל שגרירים/קמפיין צריך קוד גישה.') + '</div>';
 
-      body.querySelector('#na-admin').onchange = function(e){
-        body.querySelector('#na-pin-wrap').style.display = e.target.checked ? 'block' : 'none';
+      function updatePinVisibility(){
+        var isAdmin = body.querySelector('#na-admin') && body.querySelector('#na-admin').checked;
+        var isCampaign = body.querySelector('#na-campaign') && body.querySelector('#na-campaign').checked;
+        var show = isAdmin || isCampaign || loginMode === 'per_user';
+        body.querySelector('#na-pin-wrap').style.display = show ? 'block' : 'none';
+      }
+      updatePinVisibility();
+      if (body.querySelector('#na-admin')) body.querySelector('#na-admin').onchange = updatePinVisibility;
+      if (body.querySelector('#na-campaign')) body.querySelector('#na-campaign').onchange = function(){
+        if (this.checked && body.querySelector('#na-admin')) body.querySelector('#na-admin').checked = true;
+        updatePinVisibility();
       };
 
       Array.prototype.forEach.call(body.querySelectorAll('[data-del]'), function(btn){
@@ -1578,23 +1739,43 @@
       });
       Array.prototype.forEach.call(body.querySelectorAll('[data-repin]'), function(btn){
         btn.onclick = function(){
-          var pin = window.prompt('קוד גישה חדש למנהל:');
+          var pin = window.prompt('קוד גישה חדש:');
           if (!pin) return;
           api('/ambassadors/' + btn.getAttribute('data-repin'), {method:'PATCH', body: JSON.stringify({pin:pin})})
-            .then(function(){ alert('הקוד עודכן.'); }).catch(function(e){ alert(e.message); });
+            .then(function(){ alert('הקוד עודכן.'); renderAdminAmbassadors(body); }).catch(function(e){ alert(e.message); });
+        };
+      });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-role]'), function(sel){
+        sel.onchange = function(){
+          var id = sel.getAttribute('data-role');
+          var current = ambs.find(function(a){ return String(a.id) === id; });
+          var value = sel.value;
+          var isAdmin = value === 'admin' || value === 'campaign';
+          var isCampaignManager = value === 'campaign';
+          var payload = { isAdmin: isAdmin, isCampaignManager: isCampaignManager };
+          if (isAdmin && !current.hasPin) {
+            var pin = window.prompt('יש להגדיר קוד גישה עבור "' + current.name + '":');
+            if (!pin) { renderAdminAmbassadors(body); return; }
+            payload.pin = pin;
+          }
+          api('/ambassadors/' + id, {method:'PATCH', body: JSON.stringify(payload)})
+            .then(function(){ renderAdminAmbassadors(body); }).catch(function(e){ alert(e.message); renderAdminAmbassadors(body); });
         };
       });
       body.querySelector('#na-submit').onclick = function(){
         var name = body.querySelector('#na-name').value.trim();
         var msg = body.querySelector('#na-msg');
-        var isAdmin = body.querySelector('#na-admin').checked;
+        var isAdmin = body.querySelector('#na-admin') ? body.querySelector('#na-admin').checked : false;
+        var isCampaignManager = body.querySelector('#na-campaign') ? body.querySelector('#na-campaign').checked : false;
         var pin = body.querySelector('#na-pin').value.trim();
+        var pinRequired = isAdmin || isCampaignManager || loginMode === 'per_user';
         if (!name){ msg.innerHTML = '<div class="err">יש להזין שם</div>'; return; }
-        if (isAdmin && !pin){ msg.innerHTML = '<div class="err">יש להגדיר קוד גישה למנהל</div>'; return; }
+        if (pinRequired && !pin){ msg.innerHTML = '<div class="err">יש להגדיר קוד גישה</div>'; return; }
         api('/ambassadors', {method:'POST', body: JSON.stringify({
           name: name,
           phone: body.querySelector('#na-phone').value.trim(),
           isAdmin: isAdmin,
+          isCampaignManager: isCampaignManager,
           pin: pin
         })}).then(function(){
           renderAdminAmbassadors(body);

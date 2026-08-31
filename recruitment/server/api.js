@@ -16,7 +16,7 @@ function ah(fn) {
 router.use(ah(async (req, res, next) => {
   const id = req.headers['x-ambassador-id'];
   if (!id) return next();
-  const { rows } = await pool.query('SELECT id, name, phone, is_admin FROM ambassadors WHERE id = $1', [id]);
+  const { rows } = await pool.query('SELECT id, name, phone, is_admin, is_campaign_manager FROM ambassadors WHERE id = $1', [id]);
   if (rows[0]) req.ambassador = rows[0];
   next();
 }));
@@ -27,7 +27,14 @@ function requireAuth(req, res, next) {
 }
 
 function requireAdmin(req, res, next) {
-  if (!req.ambassador || !req.ambassador.is_admin) return res.status(403).json({ error: 'פעולה זו מיועדת למנהל בלבד' });
+  if (!req.ambassador || !req.ambassador.is_admin) return res.status(403).json({ error: 'פעולה זו מיועדת למנהל שגרירים בלבד' });
+  next();
+}
+
+// מנהל קמפיין הוא הדרג העליון: הגדרות קמפיין גלובליות ומינוי מנהלי שגרירים.
+// כל מנהל-קמפיין הוא גם מנהל-שגרירים (נאכף בכתיבה — ראו POST/PATCH ambassadors).
+function requireCampaignManager(req, res, next) {
+  if (!req.ambassador || !req.ambassador.is_campaign_manager) return res.status(403).json({ error: 'פעולה זו מיועדת למנהל קמפיין בלבד' });
   next();
 }
 
@@ -491,38 +498,64 @@ router.delete('/contacts/:id/comments/:commentId', requireAuth, ah(async (req, r
 // הרשימה עצמה פתוחה לכולם (גם בלי זהות נבחרת עדיין) — היא משמשת גם כמסך "מי אתה?"
 router.get('/ambassadors', ah(async (req, res) => {
   const { rows } = await pool.query(`
-    SELECT a.id, a.name, a.phone, a.is_admin,
+    SELECT a.id, a.name, a.phone, a.is_admin, a.is_campaign_manager, (a.pin_hash IS NOT NULL) AS has_pin,
            COUNT(c.id)::int AS contact_count
     FROM ambassadors a
     LEFT JOIN contacts c ON c.ambassador_id = a.id
     GROUP BY a.id
     ORDER BY a.name
   `);
-  res.json(rows.map(r => ({ id: r.id, name: r.name, phone: r.phone, isAdmin: r.is_admin, contactCount: r.contact_count })));
+  res.json(rows.map(r => ({
+    id: r.id, name: r.name, phone: r.phone,
+    isAdmin: r.is_admin, isCampaignManager: r.is_campaign_manager, hasPin: r.has_pin,
+    contactCount: r.contact_count
+  })));
 }));
 
 // בדיקת קוד גישה — נקודת קצה פתוחה (משמשת את מסך "מי אתה?" לפני שיש זהות בכלל).
-// לשגריר רגיל (לא מנהל) אין קוד בכלל, אז הבדיקה עוברת אוטומטית.
+// ההתנהגות תלויה במצב הכניסה הגלובלי (campaign_settings.login_mode):
+// none = ברירת המחדל ההיסטורית (רק למנהלים יש קוד), shared = קוד אחד לכולם,
+// per_user = לכל שגריר קוד אישי משלו.
 router.post('/ambassadors/:id/verify-pin', ah(async (req, res) => {
   const { pin } = req.body || {};
   const { rows } = await pool.query('SELECT is_admin, pin_hash FROM ambassadors WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ ok: false, error: 'שגריר לא נמצא' });
+
+  const { rows: settingsRows } = await pool.query('SELECT login_mode, shared_login_pin_hash FROM campaign_settings WHERE id = 1');
+  const loginMode = settingsRows[0] ? settingsRows[0].login_mode : 'none';
+
+  if (loginMode === 'shared') {
+    if (!verifyPin(pin, settingsRows[0].shared_login_pin_hash)) return res.status(401).json({ ok: false, error: 'קוד גישה שגוי' });
+    return res.json({ ok: true });
+  }
+  if (loginMode === 'per_user') {
+    if (!rows[0].pin_hash) return res.status(401).json({ ok: false, error: 'לא הוגדר עדיין קוד גישה למשתמש הזה — יש לפנות למנהל' });
+    if (!verifyPin(pin, rows[0].pin_hash)) return res.status(401).json({ ok: false, error: 'קוד גישה שגוי' });
+    return res.json({ ok: true });
+  }
   if (!rows[0].is_admin) return res.json({ ok: true });
-  const ok = verifyPin(pin, rows[0].pin_hash);
-  if (!ok) return res.status(401).json({ ok: false, error: 'קוד גישה שגוי' });
+  if (!verifyPin(pin, rows[0].pin_hash)) return res.status(401).json({ ok: false, error: 'קוד גישה שגוי' });
   res.json({ ok: true });
 }));
 
 router.post('/ambassadors', requireAdmin, ah(async (req, res) => {
-  const { name, phone, isAdmin, pin } = req.body || {};
+  const { name, phone, isAdmin, isCampaignManager, pin } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'יש להזין שם' });
-  if (isAdmin && !pin) return res.status(400).json({ error: 'יש להגדיר קוד גישה למנהל' });
+  // מינוי מנהל שגרירים / מנהל קמפיין הוא בסמכות מנהל קמפיין בלבד
+  if ((isAdmin || isCampaignManager) && !req.ambassador.is_campaign_manager) {
+    return res.status(403).json({ error: 'רק מנהל קמפיין יכול למנות מנהל שגרירים או מנהל קמפיין' });
+  }
+  const finalIsAdmin = !!isAdmin || !!isCampaignManager; // מנהל קמפיין הוא תמיד גם מנהל שגרירים
+  if (finalIsAdmin && !pin) return res.status(400).json({ error: 'יש להגדיר קוד גישה למנהל' });
   try {
     const { rows } = await pool.query(
-      'INSERT INTO ambassadors (name, phone, is_admin, pin_hash) VALUES ($1, $2, $3, $4) RETURNING id, name, phone, is_admin',
-      [name.trim(), phone || null, !!isAdmin, isAdmin ? hashPin(pin) : null]
+      'INSERT INTO ambassadors (name, phone, is_admin, is_campaign_manager, pin_hash) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, phone, is_admin, is_campaign_manager',
+      [name.trim(), phone || null, finalIsAdmin, !!isCampaignManager, pin ? hashPin(pin) : null]
     );
-    res.status(201).json({ id: rows[0].id, name: rows[0].name, phone: rows[0].phone, isAdmin: rows[0].is_admin, contactCount: 0 });
+    res.status(201).json({
+      id: rows[0].id, name: rows[0].name, phone: rows[0].phone,
+      isAdmin: rows[0].is_admin, isCampaignManager: rows[0].is_campaign_manager, contactCount: 0
+    });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'כבר קיים שגריר בשם הזה' });
     throw e;
@@ -530,13 +563,20 @@ router.post('/ambassadors', requireAdmin, ah(async (req, res) => {
 }));
 
 router.patch('/ambassadors/:id', requireAdmin, ah(async (req, res) => {
-  const { name, phone, isAdmin, pin } = req.body || {};
+  const { name, phone, isAdmin, isCampaignManager, pin } = req.body || {};
+  if ((isAdmin !== undefined || isCampaignManager !== undefined) && !req.ambassador.is_campaign_manager) {
+    return res.status(403).json({ error: 'רק מנהל קמפיין יכול לשנות הרשאות מנהל שגרירים / מנהל קמפיין' });
+  }
   const updates = [];
   const values = [];
   let i = 1;
   if (name !== undefined) { updates.push(`name = $${i++}`); values.push(name.trim()); }
   if (phone !== undefined) { updates.push(`phone = $${i++}`); values.push(phone); }
-  if (isAdmin !== undefined) { updates.push(`is_admin = $${i++}`); values.push(!!isAdmin); }
+  if (isCampaignManager !== undefined) { updates.push(`is_campaign_manager = $${i++}`); values.push(!!isCampaignManager); }
+  if (isAdmin !== undefined || isCampaignManager === true) {
+    // מנהל קמפיין הוא תמיד גם מנהל שגרירים — אי אפשר להפוך למנהל-קמפיין בלי is_admin
+    updates.push(`is_admin = $${i++}`); values.push(isCampaignManager === true ? true : !!isAdmin);
+  }
   if (pin) { updates.push(`pin_hash = $${i++}`); values.push(hashPin(pin)); }
   if (!updates.length) return res.json({ ok: true });
   values.push(req.params.id);
@@ -550,6 +590,87 @@ router.delete('/ambassadors/:id', requireAdmin, ah(async (req, res) => {
   }
   await pool.query('UPDATE contacts SET ambassador_id = NULL WHERE ambassador_id = $1', [req.params.id]);
   await pool.query('DELETE FROM ambassadors WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
+}));
+
+// --- הגדרות קמפיין (מנהל קמפיין בלבד לכתיבה; קריאה פתוחה — נדרשת גם בעמודים ציבוריים) ---
+router.get('/campaign-settings', ah(async (req, res) => {
+  const { rows } = await pool.query(`
+    SELECT rsvp_enabled, seating_enabled, login_mode,
+           event_name, event_tagline, event_date_text, event_datetime, event_location,
+           (logo_image IS NOT NULL) AS has_logo, (hero_image IS NOT NULL) AS has_hero,
+           (shared_login_pin_hash IS NOT NULL) AS has_shared_pin
+    FROM campaign_settings WHERE id = 1
+  `);
+  const s = rows[0] || {};
+  res.json({
+    rsvpEnabled: s.rsvp_enabled !== false,
+    seatingEnabled: !!s.seating_enabled,
+    loginMode: s.login_mode || 'none',
+    eventName: s.event_name,
+    eventTagline: s.event_tagline,
+    eventDateText: s.event_date_text,
+    eventDatetime: s.event_datetime,
+    eventLocation: s.event_location,
+    hasSharedPin: !!s.has_shared_pin,
+    hasCustomLogo: !!s.has_logo,
+    hasCustomHero: !!s.has_hero
+  });
+}));
+
+router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) => {
+  const {
+    rsvpEnabled, seatingEnabled, loginMode, sharedPin,
+    eventName, eventTagline, eventDateText, eventDatetime, eventLocation
+  } = req.body || {};
+  const updates = [];
+  const values = [];
+  let i = 1;
+  if (rsvpEnabled !== undefined) { updates.push(`rsvp_enabled = $${i++}`); values.push(!!rsvpEnabled); }
+  if (seatingEnabled !== undefined) { updates.push(`seating_enabled = $${i++}`); values.push(!!seatingEnabled); }
+  if (loginMode !== undefined) {
+    if (!['none', 'shared', 'per_user'].includes(loginMode)) return res.status(400).json({ error: 'מצב כניסה לא תקין' });
+    updates.push(`login_mode = $${i++}`); values.push(loginMode);
+  }
+  if (sharedPin) { updates.push(`shared_login_pin_hash = $${i++}`); values.push(hashPin(sharedPin)); }
+  if (eventName !== undefined) { updates.push(`event_name = $${i++}`); values.push(eventName.trim()); }
+  if (eventTagline !== undefined) { updates.push(`event_tagline = $${i++}`); values.push(eventTagline.trim()); }
+  if (eventDateText !== undefined) { updates.push(`event_date_text = $${i++}`); values.push(eventDateText.trim()); }
+  if (eventDatetime !== undefined) { updates.push(`event_datetime = $${i++}`); values.push(eventDatetime || null); }
+  if (eventLocation !== undefined) { updates.push(`event_location = $${i++}`); values.push(eventLocation.trim()); }
+  if (!updates.length) return res.json({ ok: true });
+  updates.push('updated_at = now()');
+  await pool.query(`UPDATE campaign_settings SET ${updates.join(', ')} WHERE id = 1`, values);
+  res.json({ ok: true });
+}));
+
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+router.post('/campaign-settings/logo', requireCampaignManager, ah(async (req, res) => {
+  const { imageBase64, mimeType } = req.body || {};
+  if (!imageBase64) return res.status(400).json({ error: 'לא נשלחה תמונה' });
+  const buf = Buffer.from(imageBase64, 'base64');
+  if (buf.length > MAX_IMAGE_BYTES) return res.status(400).json({ error: 'התמונה גדולה מדי (עד 4MB)' });
+  await pool.query('UPDATE campaign_settings SET logo_image = $1, logo_image_type = $2, updated_at = now() WHERE id = 1', [buf, mimeType || 'image/png']);
+  res.json({ ok: true });
+}));
+
+router.delete('/campaign-settings/logo', requireCampaignManager, ah(async (req, res) => {
+  await pool.query('UPDATE campaign_settings SET logo_image = NULL, logo_image_type = NULL, updated_at = now() WHERE id = 1');
+  res.json({ ok: true });
+}));
+
+router.post('/campaign-settings/hero', requireCampaignManager, ah(async (req, res) => {
+  const { imageBase64, mimeType } = req.body || {};
+  if (!imageBase64) return res.status(400).json({ error: 'לא נשלחה תמונה' });
+  const buf = Buffer.from(imageBase64, 'base64');
+  if (buf.length > MAX_IMAGE_BYTES) return res.status(400).json({ error: 'התמונה גדולה מדי (עד 4MB)' });
+  await pool.query('UPDATE campaign_settings SET hero_image = $1, hero_image_type = $2, updated_at = now() WHERE id = 1', [buf, mimeType || 'image/jpeg']);
+  res.json({ ok: true });
+}));
+
+router.delete('/campaign-settings/hero', requireCampaignManager, ah(async (req, res) => {
+  await pool.query('UPDATE campaign_settings SET hero_image = NULL, hero_image_type = NULL, updated_at = now() WHERE id = 1');
   res.json({ ok: true });
 }));
 
@@ -615,6 +736,7 @@ router.get('/public/invite/:token', ah(async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ error: 'הזמנה לא נמצאה' });
   const c = rows[0];
+  const { rows: settingsRows } = await pool.query('SELECT rsvp_enabled FROM campaign_settings WHERE id = 1');
   res.json({
     name: c.name,
     status: c.status,
@@ -622,11 +744,16 @@ router.get('/public/invite/:token', ah(async (req, res) => {
     companionSeatNumber: c.companion_seat_number,
     attendingWithCompanion: c.attending_with_companion,
     greetingName: c.invite_greeting_name,
-    companionName: c.invite_companion_name
+    companionName: c.invite_companion_name,
+    rsvpEnabled: settingsRows[0] ? settingsRows[0].rsvp_enabled !== false : true
   });
 }));
 
 router.post('/public/invite/:token/rsvp', ah(async (req, res) => {
+  const { rows: settingsRows } = await pool.query('SELECT rsvp_enabled FROM campaign_settings WHERE id = 1');
+  if (settingsRows[0] && settingsRows[0].rsvp_enabled === false) {
+    return res.status(403).json({ error: 'אישורי הגעה אינם פעילים כרגע' });
+  }
   const { attending, withCompanion } = req.body || {};
   const { rows } = await pool.query('SELECT id FROM contacts WHERE invite_token = $1', [req.params.token]);
   if (!rows[0]) return res.status(404).json({ error: 'הזמנה לא נמצאה' });

@@ -32,17 +32,17 @@
 </head>
 <body>
 <div id="app">
-  <img src="/assets/save-the-date.jpg" alt="Save the Date — ערב שותפות" class="hero-img">
+  <img src="/assets/save-the-date.jpg" alt="Save the Date" class="hero-img">
   <div class="hero-details">
-    <div class="hero-tagline">הזמן שלנו להתאחד, לצמוח ולפרוץ קדימה</div>
-    <div class="hero-meta">יום שלישי · כ"ו אלול · 8.9 · בשעה 20:30</div>
-    <div class="hero-meta">אולמי האושר, עפולה</div>
+    <div class="hero-tagline" id="ev-tagline">הזמן שלנו להתאחד, לצמוח ולפרוץ קדימה</div>
+    <div class="hero-meta" id="ev-date">יום שלישי · כ"ו אלול · 8.9 · בשעה 20:30</div>
+    <div class="hero-meta" id="ev-location">אולמי האושר, עפולה</div>
   </div>
 
   <div class="card">
     <div class="crest">🤝</div>
     <div class="brand">בית ספר חב"ד עפולה</div>
-    <div class="title">ערב שותפות</div>
+    <div class="title" id="ev-name">ערב שותפות</div>
     <div class="body-text">
       ערב מיוחד לכל הקהילה, לחיזוק ולצמיחה של מוסדות חב"ד עפולה.<br>
       מוזמנים שקיבלו הזמנה אישית מוזמנים לאשר הגעה דרך הקישור ששלחנו להם.<br>
@@ -50,5 +50,17 @@
     </div>
   </div>
 </div>
+<script>
+(function(){
+  fetch('/api/campaign-settings').then(function(r){ return r.json(); }).then(function(s){
+    function set(id, v){ if (v) document.getElementById(id).textContent = v; }
+    set('ev-tagline', s.eventTagline);
+    set('ev-date', s.eventDateText);
+    set('ev-location', s.eventLocation);
+    set('ev-name', s.eventName);
+    if (s.eventName) document.title = s.eventName + ' — בית ספר חב"ד עפולה';
+  }).catch(function(){});
+})();
+</script>
 </body>
 </html>

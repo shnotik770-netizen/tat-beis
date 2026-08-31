@@ -7,9 +7,31 @@ CREATE TABLE IF NOT EXISTS ambassadors (
   name TEXT NOT NULL UNIQUE,
   phone TEXT,
   is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  is_campaign_manager BOOLEAN NOT NULL DEFAULT FALSE,
   pin_hash TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- הגדרות קמפיין גלובליות — שורה יחידה, נערכת רק ע"י מנהל קמפיין
+CREATE TABLE IF NOT EXISTS campaign_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  rsvp_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  seating_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  login_mode TEXT NOT NULL DEFAULT 'none', -- 'none' | 'shared' | 'per_user'
+  shared_login_pin_hash TEXT,
+  event_name TEXT NOT NULL DEFAULT 'ערב שותפות',
+  event_tagline TEXT NOT NULL DEFAULT 'הזמן שלנו להתאחד, לצמוח ולפרוץ קדימה',
+  event_date_text TEXT NOT NULL DEFAULT 'יום שלישי · כ"ו אלול · 8.9 · בשעה 20:30',
+  event_datetime TIMESTAMPTZ,
+  event_location TEXT NOT NULL DEFAULT 'אולמי האושר, עפולה',
+  logo_image BYTEA,
+  logo_image_type TEXT,
+  hero_image BYTEA,
+  hero_image_type TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT campaign_settings_single_row CHECK (id = 1)
+);
+INSERT INTO campaign_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS categories (
   id SERIAL PRIMARY KEY,
@@ -75,6 +97,8 @@ ALTER TABLE contacts ADD COLUMN IF NOT EXISTS companion_seat_number TEXT;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS attending_with_companion BOOLEAN;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS invite_greeting_name TEXT;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS invite_companion_name TEXT;
+ALTER TABLE ambassadors ADD COLUMN IF NOT EXISTS is_campaign_manager BOOLEAN NOT NULL DEFAULT FALSE;
+UPDATE campaign_settings SET event_datetime = '2026-09-08 20:30:00+03' WHERE event_datetime IS NULL;
 DROP TABLE IF EXISTS sessions;
 
 CREATE INDEX IF NOT EXISTS idx_contacts_ambassador ON contacts(ambassador_id);
