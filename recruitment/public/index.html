@@ -225,11 +225,29 @@
     return (tens[Math.floor(n / 10)] || '') + (ones[n % 10] || '');
   }
 
+  // ממיר שנה עברית מלאה (למשל 5786) לאותיות עם גרשיים, לפי המוסכמה (בלי האלפים — תשפ״ו ולא ה'תשפ״ו)
+  function hebrewYear(n){
+    var rem = n % 1000;
+    var hundreds = ['', 'ק', 'ר', 'ש', 'ת', 'תק', 'תר', 'תש', 'תת', 'תתק'];
+    var tens = ['', 'י', 'כ', 'ל', 'מ', 'נ', 'ס', 'ע', 'פ', 'צ'];
+    var ones = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
+    var h = Math.floor(rem / 100);
+    var last2 = rem % 100;
+    var s = hundreds[h] || '';
+    if (last2 === 15) s += 'טו';
+    else if (last2 === 16) s += 'טז';
+    else s += (tens[Math.floor(last2 / 10)] || '') + (ones[last2 % 10] || '');
+    if (!s) return '';
+    return s.length === 1 ? (s + '׳') : (s.slice(0, -1) + '״' + s.slice(-1));
+  }
+
   function fmtHebrew(d){
     try {
       var parts = new Intl.DateTimeFormat('he-u-ca-hebrew', {day:'numeric', month:'long', year:'numeric'}).formatToParts(d);
       return parts.map(function(p){
-        return p.type === 'day' ? hebrewNumeral(parseInt(p.value, 10)) : p.value;
+        if (p.type === 'day') return hebrewNumeral(parseInt(p.value, 10));
+        if (p.type === 'year') return hebrewYear(parseInt(p.value, 10));
+        return p.value;
       }).join('');
     } catch(e){ return ''; }
   }
@@ -370,7 +388,7 @@
     ]).then(function(res){
       var contacts = res[0];
       var assignAmbs = res[1];
-      var filters = {q:'', cat:'', status:'', uncategorized:false, sort:'name'};
+      var filters = {q:'', cat:'', status:'', amb:'', uncategorized:false, sort:'name'};
       var selected = {};
 
       function getFiltered(){
@@ -382,6 +400,8 @@
           }
           if (filters.cat && !c.categories.some(function(x){ return x.name === filters.cat; })) return false;
           if (filters.status && c.status !== filters.status) return false;
+          if (filters.amb === 'none' && c.ambassador) return false;
+          if (filters.amb && filters.amb !== 'none' && (!c.ambassador || String(c.ambassador.id) !== filters.amb)) return false;
           if (filters.uncategorized && c.categories.length) return false;
           return true;
         });
@@ -412,6 +432,14 @@
             state.statuses.map(function(s){ return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('') +
           '</select>' +
         '</div>' +
+        (opts.scope === 'all' && state.me.isAdmin && assignAmbs ? (
+          '<div class="toolbar">' +
+            '<select id="f-amb"><option value="">כל השגרירים</option>' +
+              '<option value="none">ללא שיוך</option>' +
+              assignAmbs.map(function(a){ return '<option value="' + a.id + '">' + esc(a.name) + ' — ' + a.contactCount + ' אנשים</option>'; }).join('') +
+            '</select>' +
+          '</div>'
+        ) : '') +
         '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);margin-bottom:12px">' +
           '<input type="checkbox" id="f-uncat"> להציג רק אנשי קשר ללא סיווג</label>' +
         '<div id="bulk-bar" class="toolbar" style="display:none;align-items:center;background:#eef1f5;border-radius:10px;padding:8px 10px">' +
@@ -571,6 +599,7 @@
       content.querySelector('#f-sort').onchange = function(e){ filters.sort = e.target.value; draw(); };
       content.querySelector('#f-cat').onchange = function(e){ filters.cat = e.target.value; draw(); };
       content.querySelector('#f-status').onchange = function(e){ filters.status = e.target.value; draw(); };
+      if (content.querySelector('#f-amb')) content.querySelector('#f-amb').onchange = function(e){ filters.amb = e.target.value; draw(); };
       content.querySelector('#f-uncat').onchange = function(e){ filters.uncategorized = e.target.checked; draw(); };
 
       draw();
