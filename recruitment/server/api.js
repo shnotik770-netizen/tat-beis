@@ -247,9 +247,14 @@ router.post('/contacts/:id/assign', requireAdmin, ah(async (req, res) => {
 
 router.post('/contacts/:id/status', requireAuth, ah(loadContactForEdit), ah(async (req, res) => {
   const { status } = req.body || {};
-  if (!STATUSES.includes(status)) return res.status(400).json({ error: 'סטטוס לא מוכר' });
-  await pool.query('INSERT INTO status_history (contact_id, status, changed_by) VALUES ($1, $2, $3)', [req.params.id, status, req.ambassador.id]);
-  await pool.query('UPDATE contacts SET status = $1, updated_at = now() WHERE id = $2', [status, req.params.id]);
+  if (!status) {
+    // ביטול הסימון — חוזרים ל"טרם נקבע סטטוס". ההיסטוריה נשארת כתיעוד של מה שכבר קרה.
+    await pool.query('UPDATE contacts SET status = NULL, updated_at = now() WHERE id = $1', [req.params.id]);
+  } else {
+    if (!STATUSES.includes(status)) return res.status(400).json({ error: 'סטטוס לא מוכר' });
+    await pool.query('INSERT INTO status_history (contact_id, status, changed_by) VALUES ($1, $2, $3)', [req.params.id, status, req.ambassador.id]);
+    await pool.query('UPDATE contacts SET status = $1, updated_at = now() WHERE id = $2', [status, req.params.id]);
+  }
   const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);
   res.json(shapeContact(rows[0]));
 }));

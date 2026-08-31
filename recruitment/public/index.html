@@ -172,7 +172,11 @@
     {bg:'#f5ead2', fg:'#92702a'}
   ];
   function categoryColor(cat){
-    var idx = ((cat && cat.id) || 0) % CATEGORY_PALETTE.length;
+    var raw = cat && cat.id;
+    var n = 0;
+    if (typeof raw === 'number') n = raw;
+    else if (typeof raw === 'string') for (var i = 0; i < raw.length; i++) n += raw.charCodeAt(i);
+    var idx = ((n % CATEGORY_PALETTE.length) + CATEGORY_PALETTE.length) % CATEGORY_PALETTE.length;
     return CATEGORY_PALETTE[idx];
   }
 
@@ -212,9 +216,21 @@
     if (amb) localStorage.setItem('gius_ambassador_id', String(amb.id)); else localStorage.removeItem('gius_ambassador_id');
   }
 
+  // ממיר מספר יום (1–30) לאותיות עבריות (גימטריה), עם הכלל המקובל ט"ו/ט"ז במקום י"ה/י"ו
+  function hebrewNumeral(n){
+    if (n === 15) return 'טו';
+    if (n === 16) return 'טז';
+    var tens = ['', 'י', 'כ', 'ל'];
+    var ones = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
+    return (tens[Math.floor(n / 10)] || '') + (ones[n % 10] || '');
+  }
+
   function fmtHebrew(d){
     try {
-      return new Intl.DateTimeFormat('he-u-ca-hebrew', {day:'numeric', month:'long', year:'numeric'}).format(d);
+      var parts = new Intl.DateTimeFormat('he-u-ca-hebrew', {day:'numeric', month:'long', year:'numeric'}).formatToParts(d);
+      return parts.map(function(p){
+        return p.type === 'day' ? hebrewNumeral(parseInt(p.value, 10)) : p.value;
+      }).join('');
     } catch(e){ return ''; }
   }
 
@@ -414,18 +430,16 @@
       }
 
       content.querySelector('#bulk-cat').onclick = function(){
-        var ids = Object.keys(selected);
+        var ids = Object.keys(selected).map(Number);
         if (!ids.length) return;
-        var v = window.prompt('אילו סיווגים להוסיף ל-' + ids.length + ' הנבחרים? (אפשר כמה, מופרד בפסיק)');
-        if (!v || !v.trim()) return;
-        api('/contacts/bulk-categories', {method:'POST', body: JSON.stringify({ids: ids.map(Number), categories: v})}).then(function(updated){
+        openBulkCategoryDialog(ids, function(updated){
           updated.forEach(function(u){
             var idx = contacts.findIndex(function(c){ return c.id === u.id; });
             if (idx > -1) contacts[idx] = u;
           });
           loadShared();
           draw();
-        }).catch(function(e){ alert(e.message); });
+        });
       };
       content.querySelector('#bulk-del').onclick = function(){
         var ids = Object.keys(selected);
@@ -596,6 +610,69 @@
     '</div>';
   }
 
+  // ===================== סיווג מרוכז לנבחרים (רשימת סימון) =====================
+  function openBulkCategoryDialog(ids, onApplied){
+    var overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.innerHTML = '<div class="sheet"></div>';
+    document.body.appendChild(overlay);
+    overlay.onclick = function(e){ if (e.target === overlay) overlay.remove(); };
+    var sheet = overlay.querySelector('.sheet');
+    var checkedNames = {};
+
+    function draw(){
+      sheet.innerHTML =
+        '<div class="sheet-head"><h3>סיווג ' + ids.length + ' נבחרים</h3><button class="close-x" id="bc-close">✕</button></div>' +
+        '<div class="hint" style="margin-bottom:10px">מסמנים סיווג אחד או יותר — הם יתווספו לכל אחד מה-' + ids.length + ' הנבחרים (בלי למחוק סיווגים קיימים שלהם).</div>' +
+        '<div id="bc-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">' +
+          (state.categories.length ? state.categories.map(function(cat){
+            var col = categoryColor(cat);
+            return '<label style="display:flex;align-items:center;gap:8px;padding:9px 10px;border:1.5px solid var(--border);border-radius:9px;cursor:pointer">' +
+              '<input type="checkbox" data-bc-cat value="' + esc(cat.name) + '" ' + (checkedNames[cat.name] ? 'checked' : '') + '>' +
+              '<span class="badge-cat" style="background:' + col.bg + ';color:' + col.fg + '">' + esc(cat.name) + '</span>' +
+            '</label>';
+          }).join('') : '<div class="hint">אין עדיין סיווגים — אפשר להוסיף אחד חדש למטה.</div>') +
+        '</div>' +
+        '<div style="display:flex;gap:8px;margin-bottom:16px">' +
+          '<input id="bc-new" placeholder="הוספת סיווג חדש…" style="flex:1;padding:9px 10px;border:1.5px solid var(--border);border-radius:9px;background:#fbfbfc">' +
+          '<button class="btn btn-outline btn-sm" id="bc-newbtn">הוספה לרשימה</button>' +
+        '</div>' +
+        '<button class="btn btn-primary" id="bc-apply">✅ החלת סיווג על ' + ids.length + ' נבחרים</button>';
+
+      sheet.querySelector('#bc-close').onclick = function(){ overlay.remove(); };
+
+      function syncChecked(){
+        checkedNames = {};
+        Array.prototype.forEach.call(sheet.querySelectorAll('[data-bc-cat]:checked'), function(cb){ checkedNames[cb.value] = true; });
+      }
+
+      sheet.querySelector('#bc-newbtn').onclick = function(){
+        syncChecked();
+        var v = sheet.querySelector('#bc-new').value.trim();
+        if (!v) return;
+        if (!state.categories.some(function(c){ return c.name === v; })){
+          state.categories.push({id: 'new:' + v, name: v});
+        }
+        checkedNames[v] = true;
+        draw();
+      };
+      sheet.querySelector('#bc-new').addEventListener('keydown', function(e){
+        if (e.key === 'Enter'){ e.preventDefault(); sheet.querySelector('#bc-newbtn').click(); }
+      });
+
+      sheet.querySelector('#bc-apply').onclick = function(){
+        syncChecked();
+        var names = Object.keys(checkedNames);
+        if (!names.length){ alert('יש לבחור לפחות סיווג אחד'); return; }
+        api('/contacts/bulk-categories', {method:'POST', body: JSON.stringify({ids: ids, categories: names})}).then(function(updated){
+          overlay.remove();
+          onApplied(updated);
+        }).catch(function(e){ alert(e.message); });
+      };
+    }
+    draw();
+  }
+
   // ===================== CONTACT DETAIL MODAL =====================
   function openContact(id){
     var overlay = document.createElement('div');
@@ -684,6 +761,18 @@
     sheet.innerHTML =
       '<div class="sheet-head"><h3>' + esc(contact.name) + '</h3><button class="close-x" id="sh-close">✕</button></div>' +
 
+      '<div class="sec-title" style="margin-bottom:8px">עדכון סטטוס</div>' +
+      '<div class="status-grid">' + state.statuses.map(function(s){
+        var sel = contact.status === s;
+        return '<button class="status-opt ' + (sel ? 'sel' : '') + '" data-status="' + esc(s) + '">' +
+          '<span>' + esc(s) + '</span><span class="dot" style="background:' + STATUS_COLORS[s] + '"></span></button>';
+      }).join('') + '</div>' +
+      (contact.status ? '<div class="hint">לחיצה נוספת על הסטטוס המסומן תבטל את הסימון.</div>' : '') +
+
+      (contact.ambassador ? '<div class="hint">שגריר אחראי: ' + esc(contact.ambassador.name) + '</div>' : '<div class="hint">לא משויך לשגריר</div>') +
+      '<div style="margin-top:8px">' + renderSelfSection(contact) + '</div>' +
+
+      '<hr class="divider">' +
       '<div class="field"><label>שם</label><input id="e-name" value="' + esc(contact.name) + '"></div>' +
       '<div class="field"><label>טלפון</label><input id="e-phone" type="tel" value="' + esc(contact.phone || '') + '"></div>' +
       '<div class="field"><label>הערות</label><textarea id="e-notes">' + esc(contact.notes || '') + '</textarea></div>' +
@@ -710,17 +799,6 @@
         '<button class="btn btn-outline btn-sm" id="cat-add-btn">הוספה</button>' +
       '</div>' +
       '<datalist id="cat-dl">' + catList + '</datalist>' +
-
-      '<hr class="divider">' +
-      '<div class="sec-title" style="margin-bottom:8px">עדכון סטטוס</div>' +
-      '<div class="status-grid">' + state.statuses.map(function(s){
-        var sel = contact.status === s;
-        return '<button class="status-opt ' + (sel ? 'sel' : '') + '" data-status="' + esc(s) + '">' +
-          '<span>' + esc(s) + '</span><span class="dot" style="background:' + STATUS_COLORS[s] + '"></span></button>';
-      }).join('') + '</div>' +
-
-      (contact.ambassador ? '<div class="hint">שגריר אחראי: ' + esc(contact.ambassador.name) + '</div>' : '<div class="hint">לא משויך לשגריר</div>') +
-      '<div style="margin-top:8px">' + renderSelfSection(contact) + '</div>' +
 
       '<hr class="divider">' +
       '<div class="sec-title" style="margin-bottom:8px">מועמד/ת לשגרירות?</div>' +
@@ -786,7 +864,8 @@
     Array.prototype.forEach.call(sheet.querySelectorAll('[data-status]'), function(btn){
       btn.onclick = function(){
         var status = btn.getAttribute('data-status');
-        api('/contacts/' + contact.id + '/status', {method:'POST', body: JSON.stringify({status:status})}).then(function(){
+        var payload = status === contact.status ? {status: null} : {status: status};
+        api('/contacts/' + contact.id + '/status', {method:'POST', body: JSON.stringify(payload)}).then(function(){
           overlay.remove();
           renderApp();
         }).catch(function(e){ alert(e.message); });
