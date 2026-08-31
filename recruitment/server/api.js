@@ -1,4 +1,5 @@
 const express = require('express');
+const ExcelJS = require('exceljs');
 const { pool } = require('./db');
 const STATUSES = require('./statuses');
 const { hashPin, verifyPin, generateInviteToken } = require('./auth');
@@ -152,6 +153,52 @@ router.get('/contacts', requireAuth, ah(async (req, res) => {
   res.json(rows.map(shapeContact));
 }));
 
+// ייצוא כל הרשימה לאקסל — למנהל בלבד
+router.get('/contacts/export.xlsx', requireAdmin, ah(async (req, res) => {
+  const { rows } = await pool.query(CONTACT_SELECT + ' ORDER BY c.name');
+  const contacts = rows.map(shapeContact);
+
+  const wb = new ExcelJS.Workbook();
+  const sheet = wb.addWorksheet('אנשי קשר');
+  sheet.views = [{ rightToLeft: true }];
+  sheet.columns = [
+    { header: 'שם', key: 'name', width: 22 },
+    { header: 'טלפון', key: 'phone', width: 14 },
+    { header: 'סטטוס', key: 'status', width: 22 },
+    { header: 'שגריר אחראי', key: 'ambassador', width: 18 },
+    { header: 'סיווגים', key: 'categories', width: 26 },
+    { header: 'הערות', key: 'notes', width: 30 },
+    { header: 'מקום ישיבה', key: 'seat', width: 12 },
+    { header: 'מקום לבן/בת הזוג', key: 'cseat', width: 15 },
+    { header: 'שם האיש בהזמנה', key: 'greet', width: 20 },
+    { header: 'שם האישה בהזמנה', key: 'cname', width: 20 },
+    { header: 'מגיע/ה עם בן/בת זוג', key: 'withc', width: 16 },
+    { header: 'תאריך הוספה', key: 'created', width: 14 }
+  ];
+  sheet.getRow(1).font = { bold: true };
+  contacts.forEach(c => {
+    sheet.addRow({
+      name: c.name,
+      phone: c.phone || '',
+      status: c.status || '',
+      ambassador: c.ambassador ? c.ambassador.name : '',
+      categories: (c.categories || []).map(cat => cat.name).join(', '),
+      notes: c.notes || '',
+      seat: c.seatNumber || '',
+      cseat: c.companionSeatNumber || '',
+      greet: c.inviteGreetingName || '',
+      cname: c.inviteCompanionName || '',
+      withc: c.attendingWithCompanion === true ? 'כן' : (c.attendingWithCompanion === false ? 'לא' : ''),
+      created: c.createdAt ? new Date(c.createdAt).toLocaleDateString('he-IL') : ''
+    });
+  });
+
+  const buffer = await wb.xlsx.writeBuffer();
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="anshei-kesher.xlsx"');
+  res.send(Buffer.from(buffer));
+}));
+
 router.post('/contacts', requireAuth, ah(async (req, res) => {
   const { name, phone, notes, categories, ambassadorId } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'יש להזין שם' });
@@ -225,8 +272,8 @@ router.patch('/contacts/:id', requireAuth, ah(loadContactForEdit), ah(async (req
   res.json(shapeContact(rows[0]));
 }));
 
-// שיבוץ מקומות ישיבה ופרטי ההזמנה האישית — למנהל בלבד בשלב זה (בזמן שבודקים איך הפיצ'ר עובד)
-router.post('/contacts/:id/seating', requireAdmin, ah(async (req, res) => {
+// שיבוץ מקומות ישיבה ופרטי ההזמנה האישית — פתוח לכל שגריר מחובר, כמו שאר עריכת אנשי הקשר
+router.post('/contacts/:id/seating', requireAuth, ah(async (req, res) => {
   const { seatNumber, companionSeatNumber, greetingName, companionName, attendingWithCompanion } = req.body || {};
   const { rowCount } = await pool.query(
     `UPDATE contacts SET seat_number = $1, companion_seat_number = $2,

@@ -42,6 +42,12 @@
   .tabbar button.active{color:var(--navy)}
   .tabbar button.active .ic{filter:drop-shadow(0 0 0 var(--gold))}
 
+  .fab-wrap{position:fixed;bottom:76px;right:50%;transform:translateX(50%);width:100%;max-width:640px;
+    z-index:35;pointer-events:none}
+  .fab{position:absolute;left:16px;bottom:0;pointer-events:auto;width:54px;height:54px;border-radius:50%;
+    background:var(--gold);color:#3a2a04;border:none;font-size:22px;box-shadow:0 4px 14px rgba(120,90,20,.4);
+    display:flex;align-items:center;justify-content:center;cursor:pointer}
+
   .content{padding:14px}
 
   /* ---- login ---- */
@@ -343,8 +349,7 @@
       {id:'unassigned', ic:'🕊️', label:'פתוחים'},
       {id:'all', ic:'📚', label:'הכל'},
       {id:'candidates', ic:'🌟', label:'מועמדים'},
-      {id:'stats', ic:'📊', label:'סטטיסטיקה'},
-      {id:'add', ic:'➕', label:'הוספה'}
+      {id:'stats', ic:'📊', label:'סטטיסטיקה'}
     ];
     if (state.me.isAdmin) tabs.push({id:'admin', ic:'⚙️', label:'ניהול'});
 
@@ -354,9 +359,11 @@
         '<div class="me"><button id="switch-btn">🔄 החלף זהות</button></div>' +
       '</div>' +
       '<div class="content" id="content"></div>' +
+      '<div class="fab-wrap"><button class="fab" id="fab-add" title="הוספת איש קשר">➕</button></div>' +
       '<div class="tabbar" id="tabbar"></div>';
 
     document.getElementById('switch-btn').onclick = switchIdentity;
+    document.getElementById('fab-add').onclick = openAddContactSheet;
 
     var tabbar = document.getElementById('tabbar');
     tabbar.innerHTML = tabs.map(function(t){
@@ -370,12 +377,11 @@
     var content = document.getElementById('content');
     content.innerHTML = '<div class="spinner">טוען…</div>';
 
-    if (state.tab === 'mine') renderContactList(content, {scope:'mine', title:'הרשימה שלי', emptyMsg:'עדיין אין אנשים ברשימה שלך. אפשר להוסיף מהלשונית "הוספה".'});
+    if (state.tab === 'mine') renderContactList(content, {scope:'mine', title:'הרשימה שלי', emptyMsg:'עדיין אין אנשים ברשימה שלך. אפשר להוסיף מכפתור ה-➕ למטה.'});
     else if (state.tab === 'unassigned') renderContactList(content, {scope:'unassigned', title:'לא משויכים', emptyMsg:'כל הכבוד — אין כרגע אנשים שלא משויכים לשגריר.'});
     else if (state.tab === 'all') renderContactList(content, {scope:'all', title:'כל הרשימה', emptyMsg:'הרשימה ריקה.'});
     else if (state.tab === 'candidates') renderContactList(content, {scope:'candidates', title:'מועמדים לשגרירות', emptyMsg:'עדיין לא סומנו מועמדים לשגרירות. אפשר לסמן מתוך הכרטיס של כל איש קשר.'});
     else if (state.tab === 'stats') renderStats(content);
-    else if (state.tab === 'add') renderAdd(content);
     else if (state.tab === 'admin') renderAdmin(content);
   }
 
@@ -813,7 +819,7 @@
     });
   }
 
-  // הזמנה אישית להזמנה — כרגע רק למנהל, כדי לבחון איך זה עובד לפני שפותחים לכל השגרירים
+  // הזמנה אישית להזמנה — פתוח לכל שגריר
   function companionModeRadios(contact){
     var val = contact.attendingWithCompanion === true ? 'with' : (contact.attendingWithCompanion === false ? 'alone' : 'unknown');
     function radio(v, label){
@@ -824,6 +830,23 @@
       radio('unknown', '❓ לא ידוע') + radio('alone', '🧍 לבד') + radio('with', '👥 עם בן/בת זוג') +
     '</div>';
   }
+  function openInvitePreview(link){
+    var pOverlay = document.createElement('div');
+    pOverlay.className = 'overlay';
+    pOverlay.style.background = 'rgba(15,23,42,.75)';
+    pOverlay.innerHTML =
+      '<div style="background:#fff;width:100%;max-width:520px;height:92vh;border-radius:18px;overflow:hidden;display:flex;flex-direction:column">' +
+        '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);background:#fbfbfc;flex-shrink:0">' +
+          '<button id="preview-back" class="btn btn-outline btn-sm" style="width:auto;padding:8px 14px">← חזרה</button>' +
+          '<div class="hint" style="margin:0">תצוגה מקדימה של ההזמנה</div>' +
+        '</div>' +
+        '<iframe src="' + esc(link) + '" style="flex:1;border:none;width:100%"></iframe>' +
+      '</div>';
+    document.body.appendChild(pOverlay);
+    pOverlay.querySelector('#preview-back').onclick = function(){ pOverlay.remove(); };
+    pOverlay.onclick = function(e){ if (e.target === pOverlay) pOverlay.remove(); };
+  }
+
   function renderInviteSection(contact){
     var link = window.location.origin + '/invite/' + contact.inviteToken;
     return (
@@ -837,7 +860,7 @@
       '<div class="field" style="margin-top:12px"><label>קישור הזמנה אישי</label><input id="invite-link" value="' + esc(link) + '" readonly style="font-size:12px"></div>' +
       '<div style="display:flex;gap:8px">' +
         '<button class="btn btn-outline btn-sm" id="copy-link">📋 העתקת קישור</button>' +
-        '<a class="btn btn-outline btn-sm" href="' + esc(link) + '" target="_blank" style="text-decoration:none;display:flex;align-items:center;justify-content:center">🔗 תצוגה מקדימה</a>' +
+        '<button class="btn btn-outline btn-sm" id="preview-link">🔗 תצוגה מקדימה</button>' +
       '</div>' +
       '<div class="hint">המוזמן/ת יראה הזמנה עם השם לפנייה (או השם הרגיל אם לא הוגדר), שם בן/בת הזוג, מקום הישיבה (אם הוגדר), ואפשרות לאשר הגעה — כולל אם מגיע/ה לבד או עם בן/בת זוג.</div>'
     );
@@ -932,11 +955,9 @@
       '<div class="field"><label>הערות</label><textarea id="e-notes">' + esc(contact.notes || '') + '</textarea></div>' +
       '<button class="btn btn-primary" id="sh-save">💾 שמירת פרטים</button>' +
 
-      (state.me.isAdmin ? (
-        '<hr class="divider">' +
-        '<div class="sec-title" style="margin-bottom:8px">🎟️ הזמנה אישית לאירוע</div>' +
-        renderInviteSection(contact)
-      ) : '') +
+      '<hr class="divider">' +
+      '<div class="sec-title" style="margin-bottom:8px">🎟️ הזמנה אישית לאירוע</div>' +
+      renderInviteSection(contact) +
 
       '<hr class="divider">' +
       '<div class="sec-title" style="margin-bottom:8px">💬 שיח פנימי — מי מכיר את זה?</div>' +
@@ -1013,6 +1034,9 @@
       }).catch(function(e){ alert(e.message); });
     };
     if (sheet.querySelector('#copy-link')) sheet.querySelector('#copy-link').onclick = function(){
+      var greetEmpty = !sheet.querySelector('#e-greet').value.trim();
+      var cnameEmpty = !sheet.querySelector('#e-cname').value.trim();
+      if ((greetEmpty || cnameEmpty) && !confirm('לא הוזן שם לפנייה בהזמנה לאיש ו/או לאישה. מומלץ להזין שם מדוייק ולצפות בתצוגה מקדימה לפני השליחה.\n\nלהעתיק את הקישור בכל זאת?')) return;
       var input = sheet.querySelector('#invite-link');
       input.select();
       var done = function(){ var b = sheet.querySelector('#copy-link'); var orig = b.textContent; b.textContent = '✔️ הועתק'; setTimeout(function(){ b.textContent = orig; }, 1500); };
@@ -1022,6 +1046,9 @@
         document.execCommand('copy');
         done();
       }
+    };
+    if (sheet.querySelector('#preview-link')) sheet.querySelector('#preview-link').onclick = function(){
+      openInvitePreview(sheet.querySelector('#invite-link').value);
     };
 
     function submitCategories(newNames){
@@ -1052,11 +1079,38 @@
         var status = btn.getAttribute('data-status');
         var payload = status === contact.status ? {status: null} : {status: status};
         api('/contacts/' + contact.id + '/status', {method:'POST', body: JSON.stringify(payload)}).then(function(){
-          overlay.remove();
-          renderApp();
+          if (payload.status === 'מגיע לאירוע') promptCompanionMode(overlay, contact);
+          else { overlay.remove(); renderApp(); }
         }).catch(function(e){ alert(e.message); });
       };
     });
+
+    // מיד אחרי שמסמנים "מגיע/ה לאירוע" — שואלים לבד/עם בן-בת זוג, בלי לחכות שיפתחו את חלק ההזמנה
+    function promptCompanionMode(overlay, contact){
+      var pSheet = overlay.querySelector('.sheet');
+      pSheet.innerHTML =
+        '<div class="sheet-head"><h3>🎉 ' + esc(contact.name) + ' מגיע/ה לאירוע</h3></div>' +
+        '<div class="hint" style="margin-bottom:14px">מגיע/ה לבד או עם בן/בת זוג?</div>' +
+        '<div style="display:flex;flex-direction:column;gap:10px">' +
+          '<button class="btn btn-gold" id="pc-with">👥 עם בן/בת זוג</button>' +
+          '<button class="btn btn-outline" id="pc-alone">🧍 לבד</button>' +
+          '<button class="btn-ghost" id="pc-skip" style="margin-top:2px">לא ידוע כרגע — לדלג</button>' +
+        '</div>';
+      function finish(mode){
+        var attendingWithCompanion = mode === 'with' ? true : (mode === 'alone' ? false : null);
+        api('/contacts/' + contact.id + '/seating', {method:'POST', body: JSON.stringify({
+          seatNumber: contact.seatNumber || '',
+          companionSeatNumber: contact.companionSeatNumber || '',
+          greetingName: contact.inviteGreetingName || '',
+          companionName: contact.inviteCompanionName || '',
+          attendingWithCompanion: attendingWithCompanion
+        })}).then(function(){ overlay.remove(); renderApp(); })
+          .catch(function(e){ alert(e.message); overlay.remove(); renderApp(); });
+      }
+      pSheet.querySelector('#pc-with').onclick = function(){ finish('with'); };
+      pSheet.querySelector('#pc-alone').onclick = function(){ finish('alone'); };
+      pSheet.querySelector('#pc-skip').onclick = function(){ overlay.remove(); renderApp(); };
+    }
 
     function candidateCall(body){
       api('/contacts/' + contact.id + '/candidate', {method:'POST', body: JSON.stringify(body)}).then(function(){
@@ -1188,6 +1242,8 @@
         .filter(function(r){ return r.value > 0; }).sort(function(a, b){ return b.value - a.value; });
       var effort = ambStats.map(function(a){ return {label:a.name, value:a.updatesCount}; })
         .filter(function(r){ return r.value > 0; }).sort(function(a, b){ return b.value - a.value; });
+      var registered = ambStats.map(function(a){ return {label:a.name, value:a.total}; })
+        .filter(function(r){ return r.value > 0; }).sort(function(a, b){ return b.value - a.value; });
       var leaderboard = ambStats.slice().sort(function(a, b){
         return (b.byStatus['מגיע לאירוע'] || 0) - (a.byStatus['מגיע לאירוע'] || 0);
       });
@@ -1205,6 +1261,9 @@
 
         '<div class="sec-title" style="margin-top:18px">מי הביא הכי הרבה אנשים ל"מגיע לאירוע"</div>' +
         renderBarChart(arriving, 'var(--gold)') +
+
+        '<div class="sec-title" style="margin-top:18px">מי שייך הכי הרבה אנשי קשר אליו/ה</div>' +
+        renderBarChart(registered, 'var(--info)') +
 
         '<div class="sec-title" style="margin-top:18px">מי הכי משקיע (מספר עדכוני סטטוס)</div>' +
         renderBarChart(effort, 'var(--navy)') +
@@ -1231,11 +1290,18 @@
   }
 
   // ===================== ADD CONTACT =====================
-  function renderAdd(content){
+  // הוספת איש קשר — חלון צף (כפתור + למטה), פתוח מכל מסך, במקום לשונית נפרדת
+  function openAddContactSheet(){
     var catList = state.categories.map(function(c){ return '<option value="' + esc(c.name) + '">'; }).join('');
-    var ambOptions = '';
-    content.innerHTML =
-      '<div class="sec-title">הוספת איש קשר חדש</div>' +
+    var overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.innerHTML = '<div class="sheet"></div>';
+    document.body.appendChild(overlay);
+    overlay.onclick = function(e){ if (e.target === overlay) overlay.remove(); };
+    var sheet = overlay.querySelector('.sheet');
+
+    sheet.innerHTML =
+      '<div class="sheet-head"><h3>➕ הוספת איש קשר חדש</h3><button class="close-x" id="a-close">✕</button></div>' +
       '<div class="field"><label>שם מלא *</label><input id="a-name"></div>' +
       '<div class="field"><label>טלפון</label><input id="a-phone" type="tel"></div>' +
       '<div class="field"><label>סיווג (אפשר כמה, מופרד בפסיק)</label><input id="a-cat" list="cat-dl2" placeholder="לדוגמה: קהילה, הורה בית ספר"></div>' +
@@ -1246,9 +1312,11 @@
       '<button class="btn btn-primary" id="a-submit">➕ הוספה לרשימה</button>' +
       '<div class="hint">איש קשר חדש שתוסיפו ישויך אוטומטית אליכם, אלא אם תבחרו אחרת.</div>';
 
+    sheet.querySelector('#a-close').onclick = function(){ overlay.remove(); };
+
     if (state.me.isAdmin){
       api('/ambassadors').then(function(ambs){
-        var sel = content.querySelector('#a-amb');
+        var sel = sheet.querySelector('#a-amb');
         ambs.forEach(function(a){
           if (a.id === state.me.id) return;
           var opt = document.createElement('option');
@@ -1258,28 +1326,26 @@
       }).catch(function(){});
     }
 
-    content.querySelector('#a-submit').onclick = function(){
-      var name = content.querySelector('#a-name').value.trim();
-      var msg = content.querySelector('#a-msg');
+    sheet.querySelector('#a-submit').onclick = function(){
+      var name = sheet.querySelector('#a-name').value.trim();
+      var msg = sheet.querySelector('#a-msg');
       if (!name){ msg.innerHTML = '<div class="err">יש להזין שם</div>'; return; }
       var payload = {
         name: name,
-        phone: content.querySelector('#a-phone').value.trim(),
-        categories: content.querySelector('#a-cat').value.trim(),
-        notes: content.querySelector('#a-notes').value.trim()
+        phone: sheet.querySelector('#a-phone').value.trim(),
+        categories: sheet.querySelector('#a-cat').value.trim(),
+        notes: sheet.querySelector('#a-notes').value.trim()
       };
       if (state.me.isAdmin){
-        var val = content.querySelector('#a-amb').value;
+        var val = sheet.querySelector('#a-amb').value;
         if (val === 'none') payload.ambassadorId = null;
         else if (val) payload.ambassadorId = parseInt(val, 10);
       }
       api('/contacts', {method:'POST', body: JSON.stringify(payload)}).then(function(){
-        msg.innerHTML = '<div class="ok-msg">נוסף בהצלחה ✔️</div>';
-        content.querySelector('#a-name').value = '';
-        content.querySelector('#a-phone').value = '';
-        content.querySelector('#a-cat').value = '';
-        content.querySelector('#a-notes').value = '';
-        loadShared();
+        loadShared().then(function(){
+          overlay.remove();
+          renderApp();
+        });
       }).catch(function(e){
         msg.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
       });
@@ -1295,11 +1361,29 @@
         '<button data-at="import" class="' + (state.adminTab==='import'?'active':'') + '">ייבוא</button>' +
       '</div>' +
       '<div class="hint" style="margin-bottom:12px">לצפייה בכל אנשי הקשר ולשיוך מחדש לשגריר — לשונית "הכל" בתפריט התחתון.</div>' +
+      '<button class="btn btn-outline btn-sm" id="export-xlsx" style="margin-bottom:14px">📥 ייצוא כל אנשי הקשר לאקסל</button>' +
       '<div id="admin-body"><div class="spinner">טוען…</div></div>';
 
     Array.prototype.forEach.call(content.querySelectorAll('[data-at]'), function(btn){
       btn.onclick = function(){ state.adminTab = btn.getAttribute('data-at'); renderAdmin(content); };
     });
+
+    content.querySelector('#export-xlsx').onclick = function(){
+      var b = content.querySelector('#export-xlsx');
+      var orig = b.textContent;
+      b.textContent = 'מייצא…'; b.disabled = true;
+      fetch('/api/contacts/export.xlsx', {headers:{'x-ambassador-id': state.me.id}})
+        .then(function(res){ if (!res.ok) throw new Error('שגיאה בייצוא'); return res.blob(); })
+        .then(function(blob){
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url; a.download = 'anshei-kesher.xlsx';
+          document.body.appendChild(a); a.click(); a.remove();
+          URL.revokeObjectURL(url);
+        })
+        .catch(function(e){ alert(e.message); })
+        .finally(function(){ b.textContent = orig; b.disabled = false; });
+    };
 
     var body = content.querySelector('#admin-body');
     if (state.adminTab === 'ambassadors') renderAdminAmbassadors(body);
