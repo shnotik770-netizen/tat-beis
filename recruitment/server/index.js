@@ -8,6 +8,9 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api', apiRouter);
 
+// קישור הזמנה אישית — עמוד ציבורי נפרד (ללא זהות שגריר), מזוהה לפי הטוקן בכתובת
+app.get('/invite/:token', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'invite.html')));
+
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.use((err, req, res, next) => {

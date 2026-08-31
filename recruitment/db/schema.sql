@@ -28,6 +28,12 @@ CREATE TABLE IF NOT EXISTS contacts (
   candidate_owner_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL,
   self_of_ambassador_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL,
   created_by INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL,
+  invite_token TEXT,
+  seat_number TEXT,
+  companion_seat_number TEXT,
+  attending_with_companion BOOLEAN,
+  invite_greeting_name TEXT,
+  invite_companion_name TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -63,6 +69,12 @@ ALTER TABLE ambassadors ADD COLUMN IF NOT EXISTS pin_hash TEXT;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS ambassador_candidate BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS candidate_owner_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS self_of_ambassador_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS invite_token TEXT;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS seat_number TEXT;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS companion_seat_number TEXT;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS attending_with_companion BOOLEAN;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS invite_greeting_name TEXT;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS invite_companion_name TEXT;
 DROP TABLE IF EXISTS sessions;
 
 CREATE INDEX IF NOT EXISTS idx_contacts_ambassador ON contacts(ambassador_id);
@@ -71,6 +83,9 @@ CREATE INDEX IF NOT EXISTS idx_contact_categories_contact ON contact_categories(
 
 -- לכל שגריר מותר לסמן "זה אני" על איש קשר אחד בלבד — אינדקס ייחודי חלקי (מתעלם מ-NULL)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_self_ambassador ON contacts(self_of_ambassador_id) WHERE self_of_ambassador_id IS NOT NULL;
+
+-- טוקן ההזמנה האישית חייב להיות ייחודי (מתעלם מ-NULL, לחלון הזמן עד שהמיגרציה משלימה אותם)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_invite_token ON contacts(invite_token) WHERE invite_token IS NOT NULL;
 
 -- מעבר מסיווג יחיד (category_id) לסיווגים מרובים (contact_categories)
 DO $$

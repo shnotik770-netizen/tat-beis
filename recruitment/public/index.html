@@ -442,7 +442,7 @@
         ) : '') +
         '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);margin-bottom:12px">' +
           '<input type="checkbox" id="f-uncat"> להציג רק אנשי קשר ללא סיווג</label>' +
-        '<div id="bulk-bar" class="toolbar" style="display:none;align-items:center;background:#eef1f5;border-radius:10px;padding:8px 10px">' +
+        '<div id="bulk-bar" class="toolbar" style="display:none;position:sticky;z-index:15;align-items:center;background:#eef1f5;border-radius:10px;padding:8px 10px;box-shadow:0 2px 6px rgba(15,23,42,.1)">' +
           '<span id="bulk-count" style="font-weight:700;font-size:12.5px;flex:0"></span>' +
           ((opts.scope === 'unassigned' || opts.scope === 'all') ? '<button class="btn btn-gold btn-sm" id="bulk-claim" style="flex:0">✋ קח לרשימה שלי</button>' : '') +
           ((opts.scope === 'mine' || opts.scope === 'unassigned' || opts.scope === 'all') ? '<button class="btn btn-outline btn-sm" id="bulk-status" style="flex:0">🔄 עדכון סטטוס</button>' : '') +
@@ -456,7 +456,11 @@
         var bar = content.querySelector('#bulk-bar');
         var count = Object.keys(selected).length;
         bar.style.display = count ? 'flex' : 'none';
-        if (count) content.querySelector('#bulk-count').textContent = count + ' נבחרו';
+        if (count){
+          content.querySelector('#bulk-count').textContent = count + ' נבחרו';
+          var topbar = document.querySelector('.topbar');
+          if (topbar) bar.style.top = topbar.offsetHeight + 'px';
+        }
       }
 
       if (content.querySelector('#bulk-claim')) content.querySelector('#bulk-claim').onclick = function(){
@@ -473,12 +477,12 @@
               claimedCount++;
               var idx = contacts.findIndex(function(c){ return String(c.id) === r.id; });
               if (idx > -1) contacts[idx] = r.updated;
-              delete selected[r.id];
             } else {
               skippedCount++;
             }
           });
           if (skippedCount) alert('נלקחו ' + claimedCount + ' אנשי קשר לרשימה שלך. ' + skippedCount + ' לא נלקחו (כבר משויכים לשגריר אחר).');
+          selected = {};
           draw();
         });
       };
@@ -492,6 +496,7 @@
               if (idx > -1) contacts[idx] = r.updated;
             }
           });
+          selected = {};
           draw();
         });
       };
@@ -504,6 +509,7 @@
             if (idx > -1) contacts[idx] = u;
           });
           loadShared();
+          selected = {};
           draw();
         });
       };
@@ -807,6 +813,24 @@
     });
   }
 
+  // הזמנה אישית להזמנה — כרגע רק למנהל, כדי לבחון איך זה עובד לפני שפותחים לכל השגרירים
+  function renderInviteSection(contact){
+    var link = window.location.origin + '/invite/' + contact.inviteToken;
+    return (
+      '<div class="field"><label>שם לפנייה בהזמנה (למוזמן/ת)</label><input id="e-greet" value="' + esc(contact.inviteGreetingName || '') + '" placeholder="לדוגמה: ר\' ישראל ישראלי"></div>' +
+      '<div class="field"><label>שם בן/בת הזוג בהזמנה</label><input id="e-cname" value="' + esc(contact.inviteCompanionName || '') + '" placeholder="לדוגמה: רעייתו מרת שרה"></div>' +
+      '<div class="field"><label>מקום ישיבה (למוזמן/ת)</label><input id="e-seat" value="' + esc(contact.seatNumber || '') + '" placeholder="לדוגמה: A12"></div>' +
+      '<div class="field"><label>מקום ישיבה לבן/בת הזוג</label><input id="e-cseat" value="' + esc(contact.companionSeatNumber || '') + '" placeholder="לדוגמה: A13"></div>' +
+      '<button class="btn btn-outline btn-sm" id="sh-save-seating">💾 שמירת פרטי ההזמנה</button>' +
+      '<div class="field" style="margin-top:12px"><label>קישור הזמנה אישי</label><input id="invite-link" value="' + esc(link) + '" readonly style="font-size:12px"></div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<button class="btn btn-outline btn-sm" id="copy-link">📋 העתקת קישור</button>' +
+        '<a class="btn btn-outline btn-sm" href="' + esc(link) + '" target="_blank" style="text-decoration:none;display:flex;align-items:center;justify-content:center">🔗 תצוגה מקדימה</a>' +
+      '</div>' +
+      '<div class="hint">המוזמן/ת יראה הזמנה עם השם לפנייה (או השם הרגיל אם לא הוגדר), שם בן/בת הזוג, מקום הישיבה (אם הוגדר), ואפשרות לאשר הגעה — כולל אם מגיע/ה לבד או עם בן/בת זוג.</div>'
+    );
+  }
+
   function renderCandidateSection(contact){
     if (!contact.isAmbassadorCandidate){
       return '<div class="hint" style="margin-bottom:8px">האם מתאים/ה להיות שגריר/ה?</div>' +
@@ -896,6 +920,12 @@
       '<div class="field"><label>הערות</label><textarea id="e-notes">' + esc(contact.notes || '') + '</textarea></div>' +
       '<button class="btn btn-primary" id="sh-save">💾 שמירת פרטים</button>' +
 
+      (state.me.isAdmin ? (
+        '<hr class="divider">' +
+        '<div class="sec-title" style="margin-bottom:8px">🎟️ הזמנה אישית לאירוע</div>' +
+        renderInviteSection(contact)
+      ) : '') +
+
       '<hr class="divider">' +
       '<div class="sec-title" style="margin-bottom:8px">💬 שיח פנימי — מי מכיר את זה?</div>' +
       '<div id="discussion-list"><div class="hint">טוען…</div></div>' +
@@ -954,6 +984,30 @@
         overlay.remove();
         renderApp();
       }).catch(function(e){ alert(e.message); });
+    };
+
+    if (sheet.querySelector('#sh-save-seating')) sheet.querySelector('#sh-save-seating').onclick = function(){
+      var payload = {
+        seatNumber: sheet.querySelector('#e-seat').value.trim(),
+        companionSeatNumber: sheet.querySelector('#e-cseat').value.trim(),
+        greetingName: sheet.querySelector('#e-greet').value.trim(),
+        companionName: sheet.querySelector('#e-cname').value.trim()
+      };
+      api('/contacts/' + contact.id + '/seating', {method:'POST', body: JSON.stringify(payload)}).then(function(){
+        overlay.remove();
+        renderApp();
+      }).catch(function(e){ alert(e.message); });
+    };
+    if (sheet.querySelector('#copy-link')) sheet.querySelector('#copy-link').onclick = function(){
+      var input = sheet.querySelector('#invite-link');
+      input.select();
+      var done = function(){ var b = sheet.querySelector('#copy-link'); var orig = b.textContent; b.textContent = '✔️ הועתק'; setTimeout(function(){ b.textContent = orig; }, 1500); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(input.value).then(done).catch(function(){ document.execCommand('copy'); done(); });
+      } else {
+        document.execCommand('copy');
+        done();
+      }
     };
 
     function submitCategories(newNames){

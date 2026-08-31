@@ -1,7 +1,7 @@
 const express = require('express');
 const { pool } = require('./db');
 const STATUSES = require('./statuses');
-const { hashPin, verifyPin } = require('./auth');
+const { hashPin, verifyPin, generateInviteToken } = require('./auth');
 
 const router = express.Router();
 
@@ -92,6 +92,8 @@ const CONTACT_SELECT = `
          amb.id AS ambassador_id, amb.name AS ambassador_name,
          creator.name AS created_by_name,
          selfamb.id AS self_of_ambassador_id, selfamb.name AS self_of_ambassador_name,
+         c.invite_token, c.seat_number, c.companion_seat_number, c.attending_with_companion,
+         c.invite_greeting_name, c.invite_companion_name,
          COALESCE((
            SELECT json_agg(json_build_object('id', cat.id, 'name', cat.name) ORDER BY cat.name)
            FROM contact_categories cc JOIN categories cat ON cat.id = cc.category_id
@@ -115,7 +117,13 @@ function shapeContact(r) {
     isAmbassadorCandidate: r.ambassador_candidate,
     candidateOwner: r.candidate_owner_id ? { id: r.candidate_owner_id, name: r.candidate_owner_name } : null,
     selfOfAmbassador: r.self_of_ambassador_id ? { id: r.self_of_ambassador_id, name: r.self_of_ambassador_name } : null,
-    commentsCount: r.comments_count || 0
+    commentsCount: r.comments_count || 0,
+    inviteToken: r.invite_token,
+    seatNumber: r.seat_number,
+    companionSeatNumber: r.companion_seat_number,
+    attendingWithCompanion: r.attending_with_companion,
+    inviteGreetingName: r.invite_greeting_name,
+    inviteCompanionName: r.invite_companion_name
   };
 }
 
@@ -153,9 +161,9 @@ router.post('/contacts', requireAuth, ah(async (req, res) => {
     assignTo = ambassadorId || null;
   }
   const { rows } = await pool.query(
-    `INSERT INTO contacts (name, phone, notes, ambassador_id, created_by)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [name.trim(), phone || null, notes || null, assignTo, req.ambassador.id]
+    `INSERT INTO contacts (name, phone, notes, ambassador_id, created_by, invite_token)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [name.trim(), phone || null, notes || null, assignTo, req.ambassador.id, generateInviteToken()]
   );
   const categoryIds = await resolveCategoryIds(categories);
   if (categoryIds.length) await setContactCategories(rows[0].id, categoryIds);
@@ -180,9 +188,9 @@ router.post('/contacts/bulk-import', requireAdmin, ah(async (req, res) => {
       ambassadorId = found;
     }
     const inserted = await pool.query(
-      `INSERT INTO contacts (name, phone, notes, ambassador_id, created_by)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [name, r.phone || null, r.notes || null, ambassadorId, req.ambassador.id]
+      `INSERT INTO contacts (name, phone, notes, ambassador_id, created_by, invite_token)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [name, r.phone || null, r.notes || null, ambassadorId, req.ambassador.id, generateInviteToken()]
     );
     const categoryIds = await resolveCategoryIds(r.category);
     if (categoryIds.length) await setContactCategories(inserted.rows[0].id, categoryIds);
@@ -213,6 +221,20 @@ router.patch('/contacts/:id', requireAuth, ah(loadContactForEdit), ah(async (req
     values.push(req.params.id);
     await pool.query(`UPDATE contacts SET ${updates.join(', ')} WHERE id = $${i}`, values);
   }
+  const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);
+  res.json(shapeContact(rows[0]));
+}));
+
+// שיבוץ מקומות ישיבה ופרטי ההזמנה האישית — למנהל בלבד בשלב זה (בזמן שבודקים איך הפיצ'ר עובד)
+router.post('/contacts/:id/seating', requireAdmin, ah(async (req, res) => {
+  const { seatNumber, companionSeatNumber, greetingName, companionName } = req.body || {};
+  const { rowCount } = await pool.query(
+    `UPDATE contacts SET seat_number = $1, companion_seat_number = $2,
+       invite_greeting_name = $3, invite_companion_name = $4, updated_at = now()
+     WHERE id = $5`,
+    [seatNumber || null, companionSeatNumber || null, greetingName || null, companionName || null, req.params.id]
+  );
+  if (!rowCount) return res.status(404).json({ error: 'איש קשר לא נמצא' });
   const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);
   res.json(shapeContact(rows[0]));
 }));
@@ -361,7 +383,7 @@ router.get('/contacts/:id/history', requireAuth, ah(async (req, res) => {
   const { rows: crows } = await pool.query('SELECT id FROM contacts WHERE id = $1', [req.params.id]);
   if (!crows[0]) return res.status(404).json({ error: 'איש קשר לא נמצא' });
   const { rows } = await pool.query(
-    `SELECT h.status, h.changed_at, a.name AS changed_by
+    `SELECT h.status, h.changed_at, COALESCE(a.name, 'אישור עצמי של המוזמן/ת') AS changed_by
      FROM status_history h LEFT JOIN ambassadors a ON a.id = h.changed_by
      WHERE h.contact_id = $1 ORDER BY h.changed_at ASC`,
     [req.params.id]
@@ -528,6 +550,64 @@ router.get('/stats/timeline', requireAuth, ah(async (req, res) => {
     return { day: r.day, count: r.cnt, cumulative };
   });
   res.json(points);
+}));
+
+// --- הזמנה אישית ציבורית (ללא זהות שגריר בכלל — מזוהה רק לפי הטוקן שבקישור) ---
+// המוזמן/ת מקבל/ת קישור אישי (/invite/<token>) שמראה לו הזמנה, שם, מקום ישיבה, ומאפשר אישור הגעה.
+router.get('/public/invite/:token', ah(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT name, status, seat_number, companion_seat_number, attending_with_companion,
+            invite_greeting_name, invite_companion_name
+     FROM contacts WHERE invite_token = $1`,
+    [req.params.token]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'הזמנה לא נמצאה' });
+  const c = rows[0];
+  res.json({
+    name: c.name,
+    status: c.status,
+    seatNumber: c.seat_number,
+    companionSeatNumber: c.companion_seat_number,
+    attendingWithCompanion: c.attending_with_companion,
+    greetingName: c.invite_greeting_name,
+    companionName: c.invite_companion_name
+  });
+}));
+
+router.post('/public/invite/:token/rsvp', ah(async (req, res) => {
+  const { attending, withCompanion } = req.body || {};
+  const { rows } = await pool.query('SELECT id FROM contacts WHERE invite_token = $1', [req.params.token]);
+  if (!rows[0]) return res.status(404).json({ error: 'הזמנה לא נמצאה' });
+  const contactId = rows[0].id;
+
+  let status;
+  if (attending === true) status = 'מגיע לאירוע';
+  else if (attending === 'donate') status = 'לא יכול להגיע אבל רוצה לתרום';
+  else if (attending === false) status = 'לא יכול להגיע לאירוע';
+  else return res.status(400).json({ error: 'תשובה לא מוכרת' });
+
+  await pool.query('INSERT INTO status_history (contact_id, status, changed_by) VALUES ($1, $2, NULL)', [contactId, status]);
+  await pool.query(
+    'UPDATE contacts SET status = $1, attending_with_companion = $2, updated_at = now() WHERE id = $3',
+    [status, attending === true ? !!withCompanion : null, contactId]
+  );
+
+  const { rows: full } = await pool.query(
+    `SELECT name, status, seat_number, companion_seat_number, attending_with_companion,
+            invite_greeting_name, invite_companion_name
+     FROM contacts WHERE id = $1`,
+    [contactId]
+  );
+  const c = full[0];
+  res.json({
+    name: c.name,
+    status: c.status,
+    seatNumber: c.seat_number,
+    companionSeatNumber: c.companion_seat_number,
+    attendingWithCompanion: c.attending_with_companion,
+    greetingName: c.invite_greeting_name,
+    companionName: c.invite_companion_name
+  });
 }));
 
 module.exports = router;

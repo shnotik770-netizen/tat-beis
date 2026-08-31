@@ -16,4 +16,8 @@ function verifyPin(pin, stored) {
   return crypto.timingSafeEqual(a, b);
 }
 
-module.exports = { hashPin, verifyPin };
+function generateInviteToken() {
+  return crypto.randomBytes(12).toString('hex');
+}
+
+module.exports = { hashPin, verifyPin, generateInviteToken };

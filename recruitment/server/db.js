@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
-const { hashPin } = require('./auth');
+const { hashPin, generateInviteToken } = require('./auth');
 
 if (!process.env.DATABASE_URL) {
   console.warn('⚠️  DATABASE_URL is not set. Set it to your PostgreSQL connection string (Railway sets this automatically once you add a Postgres plugin).');
@@ -16,7 +16,17 @@ async function migrate() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'db', 'schema.sql'), 'utf8');
   await pool.query(schema);
   await seedAdmin();
+  await backfillInviteTokens();
   console.log('✅ Database schema is up to date.');
+}
+
+// לכל איש קשר צריך להיות טוקן הזמנה אישי ייחודי — ממלאים חסרים (התקנה קיימת, או שורות שנוספו לפני שהפיצ'ר קיים)
+async function backfillInviteTokens() {
+  const { rows } = await pool.query('SELECT id FROM contacts WHERE invite_token IS NULL');
+  for (const r of rows) {
+    await pool.query('UPDATE contacts SET invite_token = $1 WHERE id = $2', [generateInviteToken(), r.id]);
+  }
+  if (rows.length) console.log(`🎟️ הוגדר טוקן הזמנה אישי ל-${rows.length} אנשי קשר קיימים.`);
 }
 
 async function seedAdmin() {
