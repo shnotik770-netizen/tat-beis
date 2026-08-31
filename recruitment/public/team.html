@@ -1019,21 +1019,11 @@
     sheet.innerHTML =
       '<div class="sheet-head"><h3>' + esc(contact.name) + '</h3><button class="close-x" id="sh-close">✕</button></div>' +
 
-      '<div class="sec-title" style="margin-bottom:8px">עדכון סטטוס</div>' +
-      '<div class="status-grid">' + state.statuses.map(function(s){
-        var sel = contact.status === s;
-        return '<button class="status-opt ' + (sel ? 'sel' : '') + '" data-status="' + esc(s) + '">' +
-          '<span>' + esc(s) + '</span><span class="dot" style="background:' + STATUS_COLORS[s] + '"></span></button>';
-      }).join('') + '</div>' +
-      (contact.status ? '<div class="hint">לחיצה נוספת על הסטטוס המסומן תבטל את הסימון.</div>' : '') +
+      '<div class="sec-title" style="margin-bottom:8px">🎟️ שם ההזמנה האישית</div>' +
+      renderInviteNameFields(contact) +
 
-      (contact.ambassador
-        ? '<div class="hint">שגריר אחראי: ' + esc(contact.ambassador.name) +
-          ((state.me.isAdmin || contact.ambassador.id === state.me.id)
-            ? ' · <a href="#" id="unassign-link" style="color:var(--danger);text-decoration:none">ביטול שיוך</a>' : '') +
-          '</div>'
-        : '<div class="hint">לא משויך לשגריר</div>') +
-      '<div style="margin-top:8px">' + renderSelfSection(contact) + '</div>' +
+      '<div class="sec-title" style="margin:16px 0 8px">🔗 אפשרויות ההזמנה</div>' +
+      renderInviteOptions(contact) +
 
       '<hr class="divider">' +
       '<div class="field"><label>שם</label><input id="e-name" value="' + esc(contact.name) + '"></div>' +
@@ -1055,10 +1045,6 @@
       '<datalist id="cat-dl">' + catList + '</datalist>' +
 
       '<hr class="divider">' +
-      '<div class="sec-title" style="margin-bottom:8px">🎟️ שם ההזמנה האישית</div>' +
-      renderInviteNameFields(contact) +
-
-      '<hr class="divider">' +
       '<div class="sec-title" style="margin-bottom:8px">💬 שיח פנימי — מי מכיר את זה?</div>' +
       '<div id="discussion-list"><div class="hint">טוען…</div></div>' +
       '<div style="display:flex;gap:8px;margin-top:8px">' +
@@ -1067,12 +1053,25 @@
       '</div>' +
 
       '<hr class="divider">' +
-      '<div class="sec-title" style="margin-bottom:8px">🔗 אפשרויות ההזמנה</div>' +
-      renderInviteOptions(contact) +
-
-      '<hr class="divider">' +
       '<div class="sec-title" style="margin-bottom:8px">🌟 האם מתאים/ה להיות שגריר/ה?</div>' +
       renderCandidateSection(contact) +
+
+      '<hr class="divider">' +
+      '<div class="sec-title" style="margin-bottom:8px">עדכון סטטוס</div>' +
+      '<div class="status-grid">' + state.statuses.map(function(s){
+        var sel = contact.status === s;
+        return '<button class="status-opt ' + (sel ? 'sel' : '') + '" data-status="' + esc(s) + '">' +
+          '<span>' + esc(s) + '</span><span class="dot" style="background:' + STATUS_COLORS[s] + '"></span></button>';
+      }).join('') + '</div>' +
+      (contact.status ? '<div class="hint">לחיצה נוספת על הסטטוס המסומן תבטל את הסימון.</div>' : '') +
+
+      (contact.ambassador
+        ? '<div class="hint">שגריר אחראי: ' + esc(contact.ambassador.name) +
+          ((state.me.isAdmin || contact.ambassador.id === state.me.id)
+            ? ' · <a href="#" id="unassign-link" style="color:var(--danger);text-decoration:none">ביטול שיוך</a>' : '') +
+          '</div>'
+        : '<div class="hint">לא משויך לשגריר</div>') +
+      '<div style="margin-top:8px">' + renderSelfSection(contact) + '</div>' +
 
       '<hr class="divider">' +
       '<div class="sec-title" style="margin-bottom:8px">היסטוריית סטטוסים</div>' +
