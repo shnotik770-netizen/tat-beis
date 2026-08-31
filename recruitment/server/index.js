@@ -11,6 +11,10 @@ app.use('/api', apiRouter);
 // קישור הזמנה אישית — עמוד ציבורי נפרד (ללא זהות שגריר), מזוהה לפי הטוקן בכתובת
 app.get('/invite/:token', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'invite.html')));
 
+// כלי הניהול הפנימי לשגרירים — לא בכתובת השורש, כדי שמי שמקבל קישור הזמנה אישית
+// ומוחק חלק מהכתובת לא "ייפול" בטעות על לוח הניהול הפנימי
+app.get('/team', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'team.html')));
+
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.use((err, req, res, next) => {
