@@ -237,6 +237,20 @@ router.post('/contacts/:id/claim', requireAuth, ah(async (req, res) => {
   res.json(shapeContact(full[0]));
 }));
 
+// ביטול שיוך עצמי — שגריר שמשויך לאיש קשר יכול לבטל את השיוך שלו (מחזיר אותו ל"לא משויכים").
+// שיוך מחדש לשגריר *אחר* נשאר בהרשאת מנהל בלבד (assign).
+router.post('/contacts/:id/unassign', requireAuth, ah(async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM contacts WHERE id = $1', [req.params.id]);
+  const contact = rows[0];
+  if (!contact) return res.status(404).json({ error: 'איש קשר לא נמצא' });
+  if (!req.ambassador.is_admin && contact.ambassador_id !== req.ambassador.id) {
+    return res.status(403).json({ error: 'אפשר לבטל שיוך רק לאיש קשר שאתם האחראים עליו' });
+  }
+  await pool.query('UPDATE contacts SET ambassador_id = NULL, updated_at = now() WHERE id = $1', [req.params.id]);
+  const { rows: full } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);
+  res.json(shapeContact(full[0]));
+}));
+
 router.post('/contacts/:id/assign', requireAdmin, ah(async (req, res) => {
   const { ambassadorId } = req.body || {};
   const { rowCount } = await pool.query('UPDATE contacts SET ambassador_id = $1, updated_at = now() WHERE id = $2', [ambassadorId || null, req.params.id]);

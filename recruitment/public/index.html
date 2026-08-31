@@ -770,7 +770,12 @@
       }).join('') + '</div>' +
       (contact.status ? '<div class="hint">לחיצה נוספת על הסטטוס המסומן תבטל את הסימון.</div>' : '') +
 
-      (contact.ambassador ? '<div class="hint">שגריר אחראי: ' + esc(contact.ambassador.name) + '</div>' : '<div class="hint">לא משויך לשגריר</div>') +
+      (contact.ambassador
+        ? '<div class="hint">שגריר אחראי: ' + esc(contact.ambassador.name) +
+          ((state.me.isAdmin || contact.ambassador.id === state.me.id)
+            ? ' · <a href="#" id="unassign-link" style="color:var(--danger);text-decoration:none">ביטול שיוך</a>' : '') +
+          '</div>'
+        : '<div class="hint">לא משויך לשגריר</div>') +
       '<div style="margin-top:8px">' + renderSelfSection(contact) + '</div>' +
 
       '<hr class="divider">' +
@@ -892,6 +897,13 @@
     };
     if ((el = sheet.querySelector('#self-unset'))) el.onclick = function(){
       api('/contacts/' + contact.id + '/self', {method:'POST', body: JSON.stringify({self:false})})
+        .then(function(){ overlay.remove(); renderApp(); }).catch(function(e){ alert(e.message); });
+    };
+
+    if ((el = sheet.querySelector('#unassign-link'))) el.onclick = function(ev){
+      ev.preventDefault();
+      if (!confirm('לבטל את השיוך שלך ל"' + contact.name + '"? האיש יעבור לרשימת "לא משויכים".')) return;
+      api('/contacts/' + contact.id + '/unassign', {method:'POST'})
         .then(function(){ overlay.remove(); renderApp(); }).catch(function(e){ alert(e.message); });
     };
 
