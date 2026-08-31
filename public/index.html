@@ -1343,7 +1343,7 @@ function renderLedger(data) {
     const bal = famSettled ? Math.min(r.balance,0) : r.balance;
     const payRows = r.payments.map(function(p){
       return '<div class="p-row"><span class="t2">'+p.date+(p.method?' · '+p.method:'')+(p.payer?' · '+p.payer:'')+(p.isShared?' · <span class="badge am">משותף</span>':'')+'</span>' +
-        '<span><strong>₪'+p.share.toLocaleString()+'</strong> <button class="btn b-r b-sm" onclick=\'delPay("'+p.id+'","'+s.id+'")\'>🗑️</button></span></div>';
+        '<span><strong>₪'+p.share.toLocaleString()+'</strong> <button class="btn b-h b-sm" onclick=\'openEditPay("'+p.id+'","ledger","'+s.id+'")\'>✏️</button> <button class="btn b-r b-sm" onclick=\'delPay("'+p.id+'","'+s.id+'")\'>🗑️</button></span></div>';
     }).join('');
     return '<div class="card" style="margin-bottom:8px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center">' +
@@ -1356,7 +1356,7 @@ function renderLedger(data) {
   }).join('');
   const genRows = (data.genPays||[]).map(function(p){
     return '<div class="p-row"><span class="t2">'+p.date+(p.method?' · '+p.method:'')+(p.payer?' · '+p.payer:'')+'</span>' +
-      '<span><strong>₪'+p.share.toLocaleString()+'</strong> <button class="btn b-r b-sm" onclick=\'delPay("'+p.id+'","'+s.id+'")\'>🗑️</button></span></div>';
+      '<span><strong>₪'+p.share.toLocaleString()+'</strong> <button class="btn b-h b-sm" onclick=\'openEditPay("'+p.id+'","ledger","'+s.id+'")\'>✏️</button> <button class="btn b-r b-sm" onclick=\'delPay("'+p.id+'","'+s.id+'")\'>🗑️</button></span></div>';
   }).join('');
   let parentHtml = '';
   if(s.dadName||s.momName){
@@ -1416,6 +1416,7 @@ function renderFamilyLedger(data){
     if(col==='amount') return r.amount;
     return '';
   });
+  const famAnchorId = data.members.length ? data.members[0].student.id : '';
   const rows = sortedTimeline.map(function(r){
     const dateCell = '<td style="cursor:pointer" data-col="date" data-val="'+esc(r.date)+'" data-label="'+esc('תאריך: '+r.date)+'" onclick="famCellClick(this)">'+r.date+'</td>';
     const amtCell = '<td style="cursor:pointer" data-col="amount" data-val="'+esc(String(r.amount))+'" data-label="'+esc('סכום: ₪'+r.amount.toLocaleString())+'" onclick="famCellClick(this)">₪'+r.amount.toLocaleString()+(r.type==='payment'&&r.isShared?' <span class="t2">(מתוך ₪'+r.totalAmount.toLocaleString()+' כולל)</span>':'')+'</td>';
@@ -1423,10 +1424,12 @@ function renderFamilyLedger(data){
     if(r.type==='demand'){
       const rowBalance = data.familyNet<=0 ? 0 : r.balance;
       const detailsTxt = '📋 '+esc(r.title)+(rowBalance>0?' · <span class="t2">חוב ₪'+rowBalance.toLocaleString()+'</span>':' · <span class="t2">שולם ✓</span>');
-      return '<tr>'+dateCell+childCell+'<td>'+detailsTxt+'</td>'+amtCell+'</tr>';
+      const actCell = '<td><button class="btn b-h b-sm" onclick=\'openSplitDemAmt("'+r.id+'","'+r.childId+'",'+r.amount+',"family","'+famAnchorId+'")\'>✏️</button></td>';
+      return '<tr>'+dateCell+childCell+'<td>'+detailsTxt+'</td>'+amtCell+actCell+'</tr>';
     }
     const detailsTxt = '💳 '+(r.payer?'שילם/ה: '+esc(r.payer):'')+(r.method?' · '+esc(r.method):'');
-    return '<tr style="background:var(--grnl)">'+dateCell+childCell+'<td>'+detailsTxt+'</td>'+amtCell+'</tr>';
+    const actCell = '<td><button class="btn b-h b-sm" onclick=\'openEditPay("'+r.id+'","family","'+famAnchorId+'")\'>✏️</button></td>';
+    return '<tr style="background:var(--grnl)">'+dateCell+childCell+'<td>'+detailsTxt+'</td>'+amtCell+actCell+'</tr>';
   }).join('');
 
   const parentChips = data.parents.map(function(p){
@@ -1466,8 +1469,9 @@ function renderFamilyLedger(data){
       th('famLedger','child','ילד/ה','_reRenderFamilyLedger')+
       th('famLedger','details','פרטים','_reRenderFamilyLedger')+
       th('famLedger','amount','סכום','_reRenderFamilyLedger')+
+      '<th></th>'+
     '</tr></thead>' +
-    '<tbody>'+(rows||'<tr><td colspan="4" class="empty">'+(clickFilter?'אין נתונים תואמים לסינון':'אין נתונים')+'</td></tr>')+'</tbody></table></div>' +
+    '<tbody>'+(rows||'<tr><td colspan="5" class="empty">'+(clickFilter?'אין נתונים תואמים לסינון':'אין נתונים')+'</td></tr>')+'</tbody></table></div>' +
     '<div class="fg"><label>שליחת הדוח בוואטסאפ להורה</label><div class="chips" id="famParentChips">'+(parentChips||'<span class="t2">אין מספרי טלפון רשומים</span>')+'</div></div>' +
     '<div class="fg"><label>בני המשפחה</label><div class="card" style="padding:0 12px">'+membersList+'</div></div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">סגור</button><button class="btn b-g" onclick="openPayMForFamilyLedger()">💳 רישום תשלום</button><a class="btn b-g" id="famWaBtn" style="pointer-events:none;opacity:.5" target="_blank">💬 שלח דוח בוואטסאפ</a></div>';
@@ -1641,20 +1645,35 @@ function remFromDem(demandId, studentId){
   if(!confirm('להסיר את התלמיד מדרישה זו?')) return;
   google.script.run.withSuccessHandler(function(){ toast('הוסר'); openLedger(studentId); }).removeStudentFromDemand(demandId, studentId);
 }
-function openSplitDemAmt(demandId, studentId, currentAmount){
+// עריכת סכום דרישה מתוך כרטסת (אישית או משפחתית): אם התלמיד יחיד בדרישה — עדכון ישיר של הסכום;
+// אם הדרישה משותפת לכמה תלמידים — מפצלים את התלמיד הזה משאר הדרישה עם סכום נפרד (כמו קודם)
+function openSplitDemAmt(demandId, studentId, currentAmount, returnType, returnId){
+  window._demEditReturn = function(){
+    if(returnType==='family') openFamilyLedger(returnId);
+    else openLedger(studentId);
+  };
   const s = D.students.filter(function(x){return x.id===studentId;})[0];
-  openM('<div class="m-title">✏️ עריכת סכום אישית</div>' +
-    '<div class="info">זה יפריד את '+(s?s.firstName+' '+s.lastName:'התלמיד')+' משאר התלמידים בדרישה, וייצור לו שורה נפרדת עם הסכום שתקבע כאן — בדיוק כמו ביצירת "סכומים שונים". שאר התלמידים בדרישה לא ישתנו.</div>' +
+  const d = D.demands.filter(function(x){return x.id===demandId;})[0];
+  const isShared = d && d.studentIds.length>1;
+  openM('<div class="m-title">✏️ עריכת סכום דרישה</div>' +
+    (isShared ? '<div class="info">זה יפריד את '+(s?s.firstName+' '+s.lastName:'התלמיד')+' משאר התלמידים בדרישה, וייצור לו שורה נפרדת עם הסכום שתקבע כאן — בדיוק כמו ביצירת "סכומים שונים". שאר התלמידים בדרישה לא ישתנו.</div>' : '') +
     '<div class="fg"><label>סכום חדש עבור '+(s?s.firstName:'')+'</label><input type="number" id="splitAmt" value="'+currentAmount+'"></div>' +
-    '<div class="m-foot"><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick=\'saveSplitDemAmt("'+demandId+'","'+studentId+'")\'>✅ פצל ושמור</button></div>');
+    '<div class="m-foot"><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick=\'saveSplitDemAmt("'+demandId+'","'+studentId+'")\'>'+(isShared?'✅ פצל ושמור':'💾 שמור')+'</button></div>');
 }
 function saveSplitDemAmt(demandId, studentId){
   const amt = parseFloat(v('splitAmt'))||0;
   if(!amt){ toast('נא להזין סכום','err'); return; }
-  google.script.run.withSuccessHandler(function(r){
+  const after = function(r){
     if(r&&!r.ok){ toast(r.err,'err'); return; }
-    toast('עודכן ✓','ok'); closeM(); openLedger(studentId);
-  }).splitStudentFromDemand(demandId, studentId, amt);
+    toast('עודכן ✓','ok'); closeM();
+    (window._demEditReturn||function(){ openLedger(studentId); })();
+  };
+  const d = D.demands.filter(function(x){return x.id===demandId;})[0];
+  if(d && d.studentIds.length<=1){
+    google.script.run.withSuccessHandler(after).updateDemand({id:demandId, title:d.title, amount:amt, dueDate:d.dueDate?isoFromDMY(d.dueDate):'', notes:d.notes, isFamily:d.isFamily, studentIds:d.studentIds});
+  } else {
+    google.script.run.withSuccessHandler(after).splitStudentFromDemand(demandId, studentId, amt);
+  }
 }
 
 // ── Categories ──
@@ -2186,7 +2205,12 @@ function renderPaymentsResults() {
       '<th></th></tr></thead>' +
     '<tbody>'+(rows || '<tr><td colspan="6" class="empty">'+(anyFilter?'אין תשלומים תואמים':'אין תשלומים')+'</td></tr>')+'</tbody></table></div>';
 }
-function openEditPay(id){
+function openEditPay(id, returnType, returnId){
+  window._payEditReturn = function(){
+    if(returnType==='ledger') openLedger(returnId);
+    else if(returnType==='family') openFamilyLedger(returnId);
+    else go('pay');
+  };
   const p = D.payments.filter(function(x){return x.id===id;})[0];
   if(!p) return;
   const kidsObjs = D.students.filter(function(s){ return p.studentIds.indexOf(s.id)>-1; });
@@ -2226,7 +2250,8 @@ function saveEditPay(id){
   const d = {id:id, amounts:amounts, payer:v('ep_payer'), date:v('ep_date'), method:getMethod('epMethodChips')};
   google.script.run.withSuccessHandler(function(r){
     if(r&&!r.ok){ toast(r.err,'err'); return; }
-    closeM(); toast('עודכן ✓','ok'); go('pay');
+    closeM(); toast('עודכן ✓','ok');
+    (window._payEditReturn||function(){ go('pay'); })();
   }).updatePayment(d);
 }
 function delPayFromList(id){
