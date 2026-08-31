@@ -697,9 +697,10 @@
 
   function renderCandidateSection(contact){
     if (!contact.isAmbassadorCandidate){
-      return '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-        '<button class="btn btn-gold btn-sm" id="cand-mark-take">🌟 מועמד/ת + אני לוקח אחריות</button>' +
-        '<button class="btn btn-outline btn-sm" id="cand-mark-open">🌟 מועמד/ת + לשאול שגרירים אחרים</button>' +
+      return '<div class="hint" style="margin-bottom:8px">האם מתאים/ה להיות שגריר/ה?</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="btn btn-gold btn-sm" id="cand-mark-take">🌟 כן, ואני לוקח אחריות</button>' +
+        '<button class="btn btn-outline btn-sm" id="cand-mark-open">🌟 כן, אבל לשאול שגרירים אחרים</button>' +
       '</div>';
     }
     var owner = contact.candidateOwner;
@@ -801,7 +802,7 @@
       '<datalist id="cat-dl">' + catList + '</datalist>' +
 
       '<hr class="divider">' +
-      '<div class="sec-title" style="margin-bottom:8px">מועמד/ת לשגרירות?</div>' +
+      '<div class="sec-title" style="margin-bottom:8px">🌟 האם מתאים/ה להיות שגריר/ה?</div>' +
       renderCandidateSection(contact) +
 
       '<hr class="divider">' +
