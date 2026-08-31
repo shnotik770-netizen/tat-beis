@@ -284,7 +284,7 @@ async function addPayment(data) {
   const amounts = {};
   rawStudentIds.forEach(sid => {
     const a = parseFloat((data.amounts || {})[sid]) || 0;
-    if (a > 0) amounts[sid] = a;
+    if (a !== 0) amounts[sid] = a; // סכום שלילי = זיכוי
   });
   if (!Object.keys(amounts).length) return { ok: false, err: 'חובה להזין סכום לפחות לתלמיד אחד' };
   const studentIds = Object.keys(amounts);
@@ -322,7 +322,7 @@ async function updatePayment(data) {
   const amounts = {};
   studentIds.forEach(sid => {
     const a = parseFloat((data.amounts || {})[sid]) || 0;
-    if (a > 0) amounts[sid] = a;
+    if (a !== 0) amounts[sid] = a; // סכום שלילי = זיכוי
   });
   if (!Object.keys(amounts).length) return { ok: false, err: 'חובה סכום לפחות לתלמיד אחד' };
   const total = Math.round(Object.values(amounts).reduce((s, v) => s + v, 0) * 100) / 100;

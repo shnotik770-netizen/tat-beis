@@ -2220,7 +2220,7 @@ function saveEditPay(id){
   kidsObjs.forEach(function(s){
     const el = document.getElementById('ep_amt_'+s.id);
     const a = el?parseFloat(el.value)||0:0;
-    if(a>0){ amounts[s.id]=a; hasAmt=true; }
+    if(a!==0){ amounts[s.id]=a; hasAmt=true; } // סכום שלילי = זיכוי
   });
   if(!hasAmt){ toast('נא להזין סכום לפחות לתלמיד אחד','err'); return; }
   const d = {id:id, amounts:amounts, payer:v('ep_payer'), date:v('ep_date'), method:getMethod('epMethodChips')};
@@ -2525,7 +2525,7 @@ function savePay() {
   sids.forEach(function(sid){
     const el = document.getElementById('pa_'+sid);
     const a = el?parseFloat(el.value)||0:0;
-    if(a>0){ amounts[sid]=a; hasAmt=true; }
+    if(a!==0){ amounts[sid]=a; hasAmt=true; } // סכום שלילי = זיכוי
   });
   if(!hasAmt){ toast('נא להזין סכום לפחות לתלמיד אחד','err'); return; }
   const method = getMethod('payMethodChips');
