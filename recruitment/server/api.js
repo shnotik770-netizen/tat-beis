@@ -227,12 +227,17 @@ router.patch('/contacts/:id', requireAuth, ah(loadContactForEdit), ah(async (req
 
 // שיבוץ מקומות ישיבה ופרטי ההזמנה האישית — למנהל בלבד בשלב זה (בזמן שבודקים איך הפיצ'ר עובד)
 router.post('/contacts/:id/seating', requireAdmin, ah(async (req, res) => {
-  const { seatNumber, companionSeatNumber, greetingName, companionName } = req.body || {};
+  const { seatNumber, companionSeatNumber, greetingName, companionName, attendingWithCompanion } = req.body || {};
   const { rowCount } = await pool.query(
     `UPDATE contacts SET seat_number = $1, companion_seat_number = $2,
-       invite_greeting_name = $3, invite_companion_name = $4, updated_at = now()
-     WHERE id = $5`,
-    [seatNumber || null, companionSeatNumber || null, greetingName || null, companionName || null, req.params.id]
+       invite_greeting_name = $3, invite_companion_name = $4,
+       attending_with_companion = $5, updated_at = now()
+     WHERE id = $6`,
+    [
+      seatNumber || null, companionSeatNumber || null, greetingName || null, companionName || null,
+      attendingWithCompanion === true ? true : (attendingWithCompanion === false ? false : null),
+      req.params.id
+    ]
   );
   if (!rowCount) return res.status(404).json({ error: 'איש קשר לא נמצא' });
   const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);

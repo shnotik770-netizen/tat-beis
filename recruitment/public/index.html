@@ -814,11 +814,23 @@
   }
 
   // הזמנה אישית להזמנה — כרגע רק למנהל, כדי לבחון איך זה עובד לפני שפותחים לכל השגרירים
+  function companionModeRadios(contact){
+    var val = contact.attendingWithCompanion === true ? 'with' : (contact.attendingWithCompanion === false ? 'alone' : 'unknown');
+    function radio(v, label){
+      return '<label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">' +
+        '<input type="radio" name="e-companion-mode" value="' + v + '" ' + (val === v ? 'checked' : '') + '> ' + label + '</label>';
+    }
+    return '<div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 2px">' +
+      radio('unknown', '❓ לא ידוע') + radio('alone', '🧍 לבד') + radio('with', '👥 עם בן/בת זוג') +
+    '</div>';
+  }
   function renderInviteSection(contact){
     var link = window.location.origin + '/invite/' + contact.inviteToken;
     return (
-      '<div class="field"><label>שם לפנייה בהזמנה (למוזמן/ת)</label><input id="e-greet" value="' + esc(contact.inviteGreetingName || '') + '" placeholder="לדוגמה: ר\' ישראל ישראלי"></div>' +
-      '<div class="field"><label>שם בן/בת הזוג בהזמנה</label><input id="e-cname" value="' + esc(contact.inviteCompanionName || '') + '" placeholder="לדוגמה: רעייתו מרת שרה"></div>' +
+      '<div class="field"><label>שם האיש בהזמנה (איך לפנות אליו)</label><input id="e-greet" value="' + esc(contact.inviteGreetingName || '') + '" placeholder="לדוגמה: ר\' ישראל ישראלי"></div>' +
+      '<div class="field"><label>שם האישה בהזמנה (איך לפנות אליה)</label><input id="e-cname" value="' + esc(contact.inviteCompanionName || '') + '" placeholder="לדוגמה: שרה ישראלי"></div>' +
+      '<div class="field"><label>מגיע/ה לבד או עם בן/בת זוג?</label>' + companionModeRadios(contact) +
+        '<div class="hint" style="margin-top:2px">עדכון ידני מכאן — יכול להתעדכן מחדש אם המוזמן/ת יאשר/תאשר הגעה בעצמו/ה דרך הקישור.</div></div>' +
       '<div class="field"><label>מקום ישיבה (למוזמן/ת)</label><input id="e-seat" value="' + esc(contact.seatNumber || '') + '" placeholder="לדוגמה: A12"></div>' +
       '<div class="field"><label>מקום ישיבה לבן/בת הזוג</label><input id="e-cseat" value="' + esc(contact.companionSeatNumber || '') + '" placeholder="לדוגמה: A13"></div>' +
       '<button class="btn btn-outline btn-sm" id="sh-save-seating">💾 שמירת פרטי ההזמנה</button>' +
@@ -987,11 +999,13 @@
     };
 
     if (sheet.querySelector('#sh-save-seating')) sheet.querySelector('#sh-save-seating').onclick = function(){
+      var companionMode = sheet.querySelector('input[name="e-companion-mode"]:checked');
       var payload = {
         seatNumber: sheet.querySelector('#e-seat').value.trim(),
         companionSeatNumber: sheet.querySelector('#e-cseat').value.trim(),
         greetingName: sheet.querySelector('#e-greet').value.trim(),
-        companionName: sheet.querySelector('#e-cname').value.trim()
+        companionName: sheet.querySelector('#e-cname').value.trim(),
+        attendingWithCompanion: companionMode ? (companionMode.value === 'with' ? true : (companionMode.value === 'alone' ? false : null)) : null
       };
       api('/contacts/' + contact.id + '/seating', {method:'POST', body: JSON.stringify(payload)}).then(function(){
         overlay.remove();
