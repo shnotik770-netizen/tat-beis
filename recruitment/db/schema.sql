@@ -47,6 +47,16 @@ CREATE TABLE IF NOT EXISTS status_history (
   changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- שיח פנימי לכל איש קשר: "מי מכיר את זה / איך יוצרים קשר" וכו'
+CREATE TABLE IF NOT EXISTS contact_comments (
+  id SERIAL PRIMARY KEY,
+  contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  ambassador_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL,
+  message TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_contact_comments_contact ON contact_comments(contact_id);
+
 -- הימצאות מעברי גרסה — כל אלה חייבים לרוץ *לפני* יצירת אינדקסים/מיגרציית נתונים למטה,
 -- כי CREATE TABLE IF NOT EXISTS הוא no-op על טבלה קיימת ולא מוסיף לה עמודות חדשות.
 ALTER TABLE ambassadors ADD COLUMN IF NOT EXISTS pin_hash TEXT;

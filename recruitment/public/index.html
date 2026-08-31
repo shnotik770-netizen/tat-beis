@@ -158,6 +158,24 @@
     'לא יכול להגיע לאירוע': '#dc2626'
   };
 
+  // כל קטגוריה מקבלת צבע קבוע לפי ה-id שלה, כדי שאותה קטגוריה תיראה תמיד באותו צבע בכל האתר
+  var CATEGORY_PALETTE = [
+    {bg:'#e0edff', fg:'#1d4ed8'},
+    {bg:'#dcfce7', fg:'#15803d'},
+    {bg:'#f1e6fb', fg:'#7e22ce'},
+    {bg:'#ffe9d6', fg:'#c2410c'},
+    {bg:'#fde2ea', fg:'#be185d'},
+    {bg:'#d9f5f0', fg:'#0f766e'},
+    {bg:'#fef6d0', fg:'#a16207'},
+    {bg:'#fde2e2', fg:'#b91c1c'},
+    {bg:'#e3e2fd', fg:'#4338ca'},
+    {bg:'#f5ead2', fg:'#92702a'}
+  ];
+  function categoryColor(cat){
+    var idx = ((cat && cat.id) || 0) % CATEGORY_PALETTE.length;
+    return CATEGORY_PALETTE[idx];
+  }
+
   var state = {
     me: null,
     tab: 'mine',
@@ -449,6 +467,12 @@
             updateBulkBar();
           };
         });
+        Array.prototype.forEach.call(body.querySelectorAll('[data-info]'), function(el){
+          el.onclick = function(ev){
+            ev.stopPropagation();
+            openContact(el.getAttribute('data-info'));
+          };
+        });
         Array.prototype.forEach.call(body.querySelectorAll('[data-del]'), function(el){
           el.onclick = function(ev){
             ev.stopPropagation();
@@ -525,7 +549,10 @@
 
   function categoriesBadges(c){
     if (!c.categories || !c.categories.length) return '<span class="badge-cat" style="color:#b45309;background:#fff7e6">ללא סיווג</span>';
-    return c.categories.map(function(cat){ return '<span class="badge-cat">' + esc(cat.name) + '</span>'; }).join('');
+    return c.categories.map(function(cat){
+      var col = categoryColor(cat);
+      return '<span class="badge-cat" style="background:' + col.bg + ';color:' + col.fg + '">' + esc(cat.name) + '</span>';
+    }).join('');
   }
 
   function renderCard(c, opts, assignAmbs, selected){
@@ -562,6 +589,7 @@
         '<div><div class="card-name">' + esc(c.name) + '</div>' +
         '<div class="card-meta">' + (c.phone ? '<a href="tel:' + esc(c.phone) + '" onclick="event.stopPropagation()">📞 ' + esc(c.phone) + '</a>' : '') + '</div></div>' +
       '</div>' +
+      '<button class="link-btn" data-info="' + c.id + '" title="שיח פנימי — מי מכיר את זה?">ℹ️' + (c.commentsCount ? ' ' + c.commentsCount : '') + '</button>' +
       '<button class="link-btn danger" data-del="' + c.id + '" title="מחיקה">🗑️</button></div>' +
       '<div class="badges">' + categoriesBadges(c) + statusBadge + ambBadge + candidateBadge + selfBadge + '</div>' +
       actionsHtml +
@@ -616,6 +644,38 @@
     return '<button class="btn btn-outline btn-sm" id="self-set">👤 זה אני (השגריר)</button>';
   }
 
+  function renderDiscussionList(comments){
+    if (!comments.length) return '<div class="hint">אין עדיין הודעות. מזהים את השם או יודעים איך ליצור קשר? כתבו כאן!</div>';
+    return '<div class="timeline">' + comments.map(function(cm){
+      var canDelete = state.me.isAdmin || (cm.ambassador && cm.ambassador.id === state.me.id);
+      return '<div class="tl-item">' +
+        '<div class="tl-dot" style="background:var(--info)"></div>' +
+        '<div class="tl-body"><div class="tl-status">' + esc(cm.ambassador ? cm.ambassador.name : 'לא ידוע') + '</div>' +
+        '<div style="font-size:13px;margin:2px 0;white-space:pre-wrap">' + esc(cm.message) + '</div>' +
+        '<div class="tl-meta">' + fmtDate(cm.createdAt) + (canDelete ? ' · <a href="#" data-rmcomment="' + cm.id + '" style="color:var(--danger);text-decoration:none">מחיקה</a>' : '') + '</div></div>' +
+      '</div>';
+    }).join('') + '</div>';
+  }
+
+  function loadDiscussion(sheet, contact){
+    api('/contacts/' + contact.id + '/comments').then(function(comments){
+      var list = sheet.querySelector('#discussion-list');
+      if (!list) return;
+      list.innerHTML = renderDiscussionList(comments);
+      Array.prototype.forEach.call(list.querySelectorAll('[data-rmcomment]'), function(a){
+        a.onclick = function(ev){
+          ev.preventDefault();
+          if (!confirm('למחוק הודעה זו?')) return;
+          api('/contacts/' + contact.id + '/comments/' + a.getAttribute('data-rmcomment'), {method:'DELETE'})
+            .then(function(){ loadDiscussion(sheet, contact); }).catch(function(e){ alert(e.message); });
+        };
+      });
+    }).catch(function(e){
+      var list = sheet.querySelector('#discussion-list');
+      if (list) list.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+    });
+  }
+
   function drawSheet(overlay, contact, history){
     var sheet = overlay.querySelector('.sheet');
     var catList = state.categories.map(function(c){ return '<option value="' + esc(c.name) + '">'; }).join('');
@@ -630,10 +690,19 @@
       '<button class="btn btn-primary" id="sh-save">💾 שמירת פרטים</button>' +
 
       '<hr class="divider">' +
+      '<div class="sec-title" style="margin-bottom:8px">💬 שיח פנימי — מי מכיר את זה?</div>' +
+      '<div id="discussion-list"><div class="hint">טוען…</div></div>' +
+      '<div style="display:flex;gap:8px;margin-top:8px">' +
+        '<input id="disc-input" placeholder="למשל: מישהו מכיר? מאיפה?" style="flex:1;padding:9px 10px;border:1.5px solid var(--border);border-radius:9px;background:#fbfbfc">' +
+        '<button class="btn btn-outline btn-sm" id="disc-send">שליחה</button>' +
+      '</div>' +
+
+      '<hr class="divider">' +
       '<div class="sec-title" style="margin-bottom:8px">סיווגים</div>' +
       '<div class="badges" style="margin-bottom:10px">' +
         (cats.length ? cats.map(function(cat){
-          return '<span class="badge-cat">' + esc(cat.name) + ' <a href="#" data-rmcat="' + cat.id + '" style="color:var(--danger);text-decoration:none;margin-inline-start:4px">✕</a></span>';
+          var col = categoryColor(cat);
+          return '<span class="badge-cat" style="background:' + col.bg + ';color:' + col.fg + '">' + esc(cat.name) + ' <a href="#" data-rmcat="' + cat.id + '" style="color:inherit;opacity:.6;text-decoration:none;margin-inline-start:4px">✕</a></span>';
         }).join('') : '<span class="hint">אין עדיין סיווג</span>') +
       '</div>' +
       '<div style="display:flex;gap:8px;margin-bottom:16px">' +
@@ -665,6 +734,19 @@
       '<button class="btn btn-danger" id="sh-delete" style="width:100%">🗑️ מחיקת איש קשר מהרשימה</button>';
 
     sheet.querySelector('#sh-close').onclick = function(){ overlay.remove(); };
+
+    loadDiscussion(sheet, contact);
+    sheet.querySelector('#disc-send').onclick = function(){
+      var v = sheet.querySelector('#disc-input').value.trim();
+      if (!v) return;
+      api('/contacts/' + contact.id + '/comments', {method:'POST', body: JSON.stringify({message:v})}).then(function(){
+        sheet.querySelector('#disc-input').value = '';
+        loadDiscussion(sheet, contact);
+      }).catch(function(e){ alert(e.message); });
+    };
+    sheet.querySelector('#disc-input').addEventListener('keydown', function(e){
+      if (e.key === 'Enter'){ e.preventDefault(); sheet.querySelector('#disc-send').click(); }
+    });
 
     sheet.querySelector('#sh-save').onclick = function(){
       var payload = {

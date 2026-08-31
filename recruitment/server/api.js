@@ -96,7 +96,8 @@ const CONTACT_SELECT = `
            SELECT json_agg(json_build_object('id', cat.id, 'name', cat.name) ORDER BY cat.name)
            FROM contact_categories cc JOIN categories cat ON cat.id = cc.category_id
            WHERE cc.contact_id = c.id
-         ), '[]') AS categories
+         ), '[]') AS categories,
+         (SELECT COUNT(*)::int FROM contact_comments cm WHERE cm.contact_id = c.id) AS comments_count
   FROM contacts c
   LEFT JOIN ambassadors amb ON amb.id = c.ambassador_id
   LEFT JOIN ambassadors creator ON creator.id = c.created_by
@@ -113,7 +114,8 @@ function shapeContact(r) {
     createdBy: r.created_by_name || null,
     isAmbassadorCandidate: r.ambassador_candidate,
     candidateOwner: r.candidate_owner_id ? { id: r.candidate_owner_id, name: r.candidate_owner_name } : null,
-    selfOfAmbassador: r.self_of_ambassador_id ? { id: r.self_of_ambassador_id, name: r.self_of_ambassador_name } : null
+    selfOfAmbassador: r.self_of_ambassador_id ? { id: r.self_of_ambassador_id, name: r.self_of_ambassador_name } : null,
+    commentsCount: r.comments_count || 0
   };
 }
 
@@ -346,6 +348,45 @@ router.get('/contacts/:id/history', requireAuth, ah(async (req, res) => {
     previousStatus: rows.length > 1 ? rows[rows.length - 2].status : null,
     currentStatus: rows.length ? rows[rows.length - 1].status : null
   });
+}));
+
+// שיח פנימי לכל איש קשר — "מי מכיר את זה?" וכו'. פתוח לכולם, כמו שאר תחזוקת הרשימה המשותפת.
+router.get('/contacts/:id/comments', requireAuth, ah(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT cm.id, cm.message, cm.created_at, cm.ambassador_id, a.name AS ambassador_name
+     FROM contact_comments cm LEFT JOIN ambassadors a ON a.id = cm.ambassador_id
+     WHERE cm.contact_id = $1 ORDER BY cm.created_at ASC`,
+    [req.params.id]
+  );
+  res.json(rows.map(r => ({
+    id: r.id, message: r.message, createdAt: r.created_at,
+    ambassador: r.ambassador_id ? { id: r.ambassador_id, name: r.ambassador_name } : null
+  })));
+}));
+
+router.post('/contacts/:id/comments', requireAuth, ah(async (req, res) => {
+  const { message } = req.body || {};
+  if (!message || !message.trim()) return res.status(400).json({ error: 'יש לכתוב הודעה' });
+  const { rowCount } = await pool.query('SELECT 1 FROM contacts WHERE id = $1', [req.params.id]);
+  if (!rowCount) return res.status(404).json({ error: 'איש קשר לא נמצא' });
+  const { rows } = await pool.query(
+    'INSERT INTO contact_comments (contact_id, ambassador_id, message) VALUES ($1, $2, $3) RETURNING id, message, created_at',
+    [req.params.id, req.ambassador.id, message.trim()]
+  );
+  res.status(201).json({
+    id: rows[0].id, message: rows[0].message, createdAt: rows[0].created_at,
+    ambassador: { id: req.ambassador.id, name: req.ambassador.name }
+  });
+}));
+
+router.delete('/contacts/:id/comments/:commentId', requireAuth, ah(async (req, res) => {
+  const { rows } = await pool.query('SELECT ambassador_id FROM contact_comments WHERE id = $1 AND contact_id = $2', [req.params.commentId, req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'הודעה לא נמצאה' });
+  if (!req.ambassador.is_admin && rows[0].ambassador_id !== req.ambassador.id) {
+    return res.status(403).json({ error: 'אפשר למחוק רק הודעה שכתבתם בעצמכם' });
+  }
+  await pool.query('DELETE FROM contact_comments WHERE id = $1', [req.params.commentId]);
+  res.json({ ok: true });
 }));
 
 // --- ambassadors ---
