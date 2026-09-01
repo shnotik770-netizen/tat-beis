@@ -612,7 +612,8 @@ router.get('/campaign-settings', ah(async (req, res) => {
   const { rows } = await pool.query(`
     SELECT rsvp_enabled, seating_enabled, login_mode,
            event_name, event_tagline, event_date_text, event_datetime, event_location, org_name,
-           invite_brand_text, invite_message_text, invite_footer_text, motivational_quotes,
+           invite_brand_text, invite_message_text, invite_footer_text,
+           quotes_general, quotes_partners, quotes_participants,
            (logo_image IS NOT NULL) AS has_logo, (hero_image IS NOT NULL) AS has_hero,
            (shared_login_pin_hash IS NOT NULL) AS has_shared_pin
     FROM campaign_settings WHERE id = 1
@@ -631,7 +632,9 @@ router.get('/campaign-settings', ah(async (req, res) => {
     inviteBrandText: s.invite_brand_text,
     inviteMessageText: s.invite_message_text,
     inviteFooterText: s.invite_footer_text,
-    motivationalQuotes: s.motivational_quotes,
+    quotesGeneral: s.quotes_general,
+    quotesPartners: s.quotes_partners,
+    quotesParticipants: s.quotes_participants,
     hasSharedPin: !!s.has_shared_pin,
     hasCustomLogo: !!s.has_logo,
     hasCustomHero: !!s.has_hero
@@ -642,7 +645,8 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
   const {
     rsvpEnabled, seatingEnabled, loginMode, sharedPin,
     eventName, eventTagline, eventDateText, eventDatetime, eventLocation, orgName,
-    inviteBrandText, inviteMessageText, inviteFooterText, motivationalQuotes
+    inviteBrandText, inviteMessageText, inviteFooterText,
+    quotesGeneral, quotesPartners, quotesParticipants
   } = req.body || {};
   const updates = [];
   const values = [];
@@ -663,10 +667,13 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
   if (inviteBrandText !== undefined) { updates.push(`invite_brand_text = $${i++}`); values.push(inviteBrandText.replace(/\r\n/g, '\n').trim()); }
   if (inviteMessageText !== undefined) { updates.push(`invite_message_text = $${i++}`); values.push(inviteMessageText.replace(/\r\n/g, '\n').trim()); }
   if (inviteFooterText !== undefined) { updates.push(`invite_footer_text = $${i++}`); values.push(inviteFooterText.replace(/\r\n/g, '\n').trim()); }
-  if (motivationalQuotes !== undefined) {
-    const cleaned = motivationalQuotes.replace(/\r\n/g, '\n').split('\n').map(q => q.trim()).filter(Boolean).join('\n');
-    if (!cleaned) return res.status(400).json({ error: 'צריך לפחות משפט עידוד אחד' });
-    updates.push(`motivational_quotes = $${i++}`); values.push(cleaned);
+  const quoteFields = { quotesGeneral: 'quotes_general', quotesPartners: 'quotes_partners', quotesParticipants: 'quotes_participants' };
+  const quoteValues = { quotesGeneral, quotesPartners, quotesParticipants };
+  for (const [key, column] of Object.entries(quoteFields)) {
+    if (quoteValues[key] === undefined) continue;
+    const cleaned = quoteValues[key].replace(/\r\n/g, '\n').split('\n').map(q => q.trim()).filter(Boolean).join('\n');
+    if (!cleaned) return res.status(400).json({ error: 'צריך לפחות משפט עידוד אחד בכל קטגוריה' });
+    updates.push(`${column} = $${i++}`); values.push(cleaned);
   }
   if (!updates.length) return res.json({ ok: true });
   updates.push('updated_at = now()');

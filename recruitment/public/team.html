@@ -71,6 +71,11 @@
     border-radius:10px;background:#fbfbfc;color:var(--text)}
   .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--navy)}
   .field textarea{resize:vertical;min-height:70px;font-family:inherit}
+  .quote-tile{display:flex;gap:8px;align-items:flex-start;margin-bottom:8px}
+  .quote-tile textarea{flex:1;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;
+    background:#fbfbfc;color:var(--text);font-family:inherit;font-size:13.5px;resize:vertical;min-height:44px}
+  .quote-tile textarea:focus{outline:none;border-color:var(--navy)}
+  .quote-tile .qt-remove{flex:0;align-self:flex-start;margin-top:2px}
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:10px;
     padding:11px 18px;font-weight:700;font-size:14px}
   .btn-primary{background:var(--navy);color:#fff;width:100%}
@@ -396,14 +401,23 @@
   // ===================== APP SHELL =====================
   function renderApp(){
     var app = document.getElementById('app');
-    var tabs = [
+    // מנהל קמפיין אינו שגריר בעצמו — "שלי" ו"פתוחים" לא רלוונטיים לו; את הפתוחים הוא יכול
+    // לראות דרך סינון "ללא שיוך" בתוך "כל השותפים" (הבורר "שיוך לשגריר" כבר מוצג לו שם).
+    var isCM = state.me.isCampaignManager;
+    if (isCM && (state.tab === 'mine' || state.tab === 'unassigned')) state.tab = 'all';
+    var tabs = isCM ? [
+      {id:'all', ic:'📚', label:'כל השותפים'},
+      {id:'candidates', ic:'🌟', label:'מועמדים'},
+      {id:'stats', ic:'📊', label:'סטטיסטיקה'}
+    ] : [
       {id:'mine', ic:'📋', label:'שלי'},
       {id:'unassigned', ic:'🕊️', label:'פתוחים'},
       {id:'all', ic:'📚', label:'הכל'},
       {id:'candidates', ic:'🌟', label:'מועמדים'},
       {id:'stats', ic:'📊', label:'סטטיסטיקה'}
     ];
-    if (state.me.isAdmin) tabs.push({id:'admin', ic:'⚙️', label:'ניהול'});
+    if (state.me.isAdmin) tabs.push({id:'admin', ic:'⚙️', label:'ניהול שגרירים ושותפים'});
+    if (state.me.isCampaignManager) tabs.push({id:'campaign', ic:'⭐', label:'ניהול קמפיין'});
 
     app.innerHTML =
       '<div class="topbar">' +
@@ -443,6 +457,7 @@
     else if (state.tab === 'candidates') renderContactList(content, {scope:'candidates', title:'מועמדים לשגרירות', emptyMsg:'עדיין לא סומנו מועמדים לשגרירות. אפשר לסמן מתוך הכרטיס של כל איש קשר.'});
     else if (state.tab === 'stats') renderStats(content);
     else if (state.tab === 'admin') renderAdmin(content);
+    else if (state.tab === 'campaign' && state.me.isCampaignManager) renderCampaignTab(content);
   }
 
   // ===================== CONTACT LIST (שלי / פתוחים / הכל / מועמדים) =====================
@@ -1304,28 +1319,39 @@
   }
 
   // ===================== סטטיסטיקה ולוח מובילים =====================
-  // משפטי העידוד ניתנים לעריכה מלאה דרך "⭐ הגדרות קמפיין" (state.campaignSettings.motivationalQuotes,
-  // שורה למשפט) — הרשימה כאן היא ברירת מחדל בלבד, למקרה שההגדרות עדיין לא נטענו.
-  var DEFAULT_MOTIVATIONAL_QUOTES = [
-    'כל שיחה נוספת שאתם עושים היא עוד לבנה בבניין המוסדות של חב"ד עפולה — תודה על המסירות!',
-    'אין דבר העומד בפני הרצון — וההתקדמות שלכם היא הוכחה חיה לכך. ממשיכים קדימה!',
-    'הרבי תמיד אמר שכל יהודי הוא שליח — ואתם ממש מגשימים את זה בכל שיחה.',
-    'הערב הזה יקרה בזכותכם. כל "כן" שאתם מקבלים הוא ניצחון בשביל כל הקהילה.',
-    'מעשה קטן שלכם היום — שיחה אחת, טלפון אחד — יכול להביא שינוי גדול מחר.',
-    'אתם לא רק מגייסים לאירוע — אתם בונים קהילה. יישר כוח!',
-    'כל איש קשר שהתקדם בזכותכם הוא סימן שהמאמץ שלכם עובד. תמשיכו כך!',
-    'בזכות שגרירים כמוכם, ערב השותפות הזה קורם עור וגידים מהר מהצפוי!',
-    'גם שיחה שלא הצליחה היא חלק מהדרך — ממשיכים לחייג, לדבר, ולהאמין.',
-    'המוסדות של חב"ד עפולה גדלים בזכות אנשים כמוכם שמוכנים להשקיע מזמנם. תודה ענקית!',
-    'לא משנה כמה קשה השיחה — כל ניסיון הוא זריעה, והקציר יגיע.',
-    'אתם השליחים של הרבי בשטח — וכל שיחה שלכם ממשיכה את השליחות שלו.'
-  ];
+  // משפטי העידוד ניתנים לעריכה מלאה כריבועים דרך "⭐ ניהול קמפיין", בשלוש קטגוריות:
+  // general (לשונית הסטטיסטיקה), partners (הודעה קופצת על עדכון סטטוס — "גייסו שותפים"),
+  // participants (הודעה קופצת על הצטרפות אנשי קשר — "גייסו משתתפים"). הרשימות כאן הן ברירת
+  // מחדל בלבד, למקרה שההגדרות עדיין לא נטענו.
+  var DEFAULT_QUOTES = {
+    general: [
+      'כל שיחה נוספת שאתם עושים היא עוד לבנה בבניין המוסדות של חב"ד עפולה — תודה על המסירות!',
+      'אין דבר העומד בפני הרצון — וההתקדמות שלכם היא הוכחה חיה לכך. ממשיכים קדימה!',
+      'הרבי תמיד אמר שכל יהודי הוא שליח — ואתם ממש מגשימים את זה בכל שיחה.',
+      'אתם לא רק מגייסים לאירוע — אתם בונים קהילה. יישר כוח!',
+      'המוסדות של חב"ד עפולה גדלים בזכות אנשים כמוכם שמוכנים להשקיע מזמנם. תודה ענקית!',
+      'אתם השליחים של הרבי בשטח — וכל שיחה שלכם ממשיכה את השליחות שלו.'
+    ],
+    partners: [
+      'הערב הזה יקרה בזכותכם. כל "כן" שאתם מקבלים הוא ניצחון בשביל כל הקהילה.',
+      'כל איש קשר שהתקדם בזכותכם הוא סימן שהמאמץ שלכם עובד. תמשיכו כך!',
+      'בזכות שגרירים כמוכם, ערב השותפות הזה קורם עור וגידים מהר מהצפוי!',
+      'לא משנה כמה קשה השיחה — כל ניסיון הוא זריעה, והקציר יגיע.'
+    ],
+    participants: [
+      'מעשה קטן שלכם היום — שיחה אחת, טלפון אחד — יכול להביא שינוי גדול מחר.',
+      'גם שיחה שלא הצליחה היא חלק מהדרך — ממשיכים לחייג, לדבר, ולהאמין.',
+      'כל שם נוסף ברשימה שלכם הוא עוד אדם שמרגיש שייך. תודה שאתם לא מוותרים!'
+    ]
+  };
+  var QUOTE_CATEGORY_FIELD = { general: 'quotesGeneral', partners: 'quotesPartners', participants: 'quotesParticipants' };
 
-  function motivationalQuotes(){
-    var raw = state.campaignSettings && state.campaignSettings.motivationalQuotes;
-    if (!raw) return DEFAULT_MOTIVATIONAL_QUOTES;
+  function motivationalQuotes(category){
+    var field = QUOTE_CATEGORY_FIELD[category];
+    var raw = state.campaignSettings && state.campaignSettings[field];
+    if (!raw) return DEFAULT_QUOTES[category];
     var lines = raw.split('\n').map(function(q){ return q.trim(); }).filter(Boolean);
-    return lines.length ? lines : DEFAULT_MOTIVATIONAL_QUOTES;
+    return lines.length ? lines : DEFAULT_QUOTES[category];
   }
 
   function pickRandom(arr, n){
@@ -1355,15 +1381,15 @@
       var me = list.find(function(a){ return a.id === state.me.id; });
       if (!me) return;
       if (!state.celebrated) state.celebrated = {};
-      function maybeCelebrate(kind, count, every, prefix){
+      function maybeCelebrate(kind, count, every, prefix, category){
         if (!count || count % every !== 0) return;
         var key = kind + count;
         if (state.celebrated[key]) return;
         state.celebrated[key] = true;
-        showMilestoneToast(prefix + pickRandom(motivationalQuotes(), 1)[0]);
+        showMilestoneToast(prefix + pickRandom(motivationalQuotes(category), 1)[0]);
       }
-      maybeCelebrate('u', me.updatesCount, 3, '🎉 כל הכבוד! כבר עדכנתם סטטוס ל-' + me.updatesCount + ' אנשים — ');
-      maybeCelebrate('t', me.total, 8, '🌟 מעולה! כבר ' + me.total + ' אנשי קשר ברשימה שלכם — ');
+      maybeCelebrate('u', me.updatesCount, 3, '🎉 כל הכבוד! כבר עדכנתם סטטוס ל-' + me.updatesCount + ' אנשים — ', 'partners');
+      maybeCelebrate('t', me.total, 8, '🌟 מעולה! כבר ' + me.total + ' אנשי קשר ברשימה שלכם — ', 'participants');
     }).catch(function(){});
   }
 
@@ -1426,7 +1452,7 @@
         return (b.byStatus['מגיע לאירוע'] || 0) - (a.byStatus['מגיע לאירוע'] || 0);
       });
 
-      var quotes = pickRandom(motivationalQuotes(), 2);
+      var quotes = pickRandom(motivationalQuotes('general'), 2);
       var top = arriving[0];
 
       content.innerHTML =
@@ -1533,12 +1559,12 @@
 
   // ===================== ADMIN =====================
   function renderAdmin(content){
+    if (state.adminTab === 'settings') state.adminTab = 'ambassadors'; // עבר ללשונית "ניהול קמפיין" נפרדת בתפריט התחתון
     content.innerHTML =
       '<div class="admin-tabs">' +
         '<button data-at="ambassadors" class="' + (state.adminTab==='ambassadors'?'active':'') + '">שגרירים</button>' +
         '<button data-at="categories" class="' + (state.adminTab==='categories'?'active':'') + '">קטגוריות</button>' +
         '<button data-at="import" class="' + (state.adminTab==='import'?'active':'') + '">ייבוא</button>' +
-        (state.me.isCampaignManager ? '<button data-at="settings" class="' + (state.adminTab==='settings'?'active':'') + '">⭐ הגדרות קמפיין</button>' : '') +
       '</div>' +
       '<div class="hint" style="margin-bottom:12px">לצפייה בכל אנשי הקשר ולשיוך מחדש לשגריר — לשונית "הכל" בתפריט התחתון.</div>' +
       '<button class="btn btn-outline btn-sm" id="export-xlsx" style="margin-bottom:14px">📥 ייצוא כל אנשי הקשר לאקסל</button>' +
@@ -1569,7 +1595,51 @@
     if (state.adminTab === 'ambassadors') renderAdminAmbassadors(body);
     else if (state.adminTab === 'categories') renderAdminCategories(body);
     else if (state.adminTab === 'import') renderAdminImport(body);
-    else if (state.adminTab === 'settings' && state.me.isCampaignManager) renderAdminSettings(body);
+  }
+
+  // ===================== ניהול קמפיין — לשונית נפרדת בתפריט התחתון, מנהל קמפיין בלבד =====================
+  function renderCampaignTab(content){
+    content.innerHTML = '<div class="sec-title">⭐ ניהול קמפיין</div><div id="campaign-body"><div class="spinner">טוען…</div></div>';
+    renderAdminSettings(content.querySelector('#campaign-body'));
+  }
+
+  // ריבועי משפטי עידוד — כל משפט הוא כרטיס נפרד עם טקסט לעריכה וכפתור מחיקה, ועוד כפתור להוספת כרטיס חדש
+  function quotesArray(raw){
+    var lines = (raw || '').split('\n').map(function(q){ return q.trim(); }).filter(Boolean);
+    return lines.length ? lines : [''];
+  }
+
+  function quoteTileHtml(text){
+    return '<div class="quote-tile"><textarea rows="2">' + esc(text) + '</textarea>' +
+      '<button type="button" class="link-btn danger qt-remove" title="מחיקת המשפט">🗑️</button></div>';
+  }
+
+  function quoteTilesBlockHtml(containerId, quotes){
+    return '<div id="' + containerId + '">' + quotes.map(quoteTileHtml).join('') + '</div>' +
+      '<button type="button" class="btn btn-outline btn-sm" data-qt-add="' + containerId + '" style="margin-bottom:6px">➕ הוספת משפט</button>';
+  }
+
+  function wireQuoteTiles(body){
+    function wireRemove(tile){
+      tile.querySelector('.qt-remove').onclick = function(){ tile.remove(); };
+    }
+    Array.prototype.forEach.call(body.querySelectorAll('.quote-tile'), wireRemove);
+    Array.prototype.forEach.call(body.querySelectorAll('[data-qt-add]'), function(btn){
+      btn.onclick = function(){
+        var container = body.querySelector('#' + btn.getAttribute('data-qt-add'));
+        var wrap = document.createElement('div');
+        wrap.innerHTML = quoteTileHtml('');
+        var tile = wrap.firstChild;
+        container.appendChild(tile);
+        wireRemove(tile);
+        tile.querySelector('textarea').focus();
+      };
+    });
+  }
+
+  function collectQuoteTiles(body, containerId){
+    return Array.prototype.map.call(body.querySelectorAll('#' + containerId + ' textarea'), function(el){ return el.value.trim(); })
+      .filter(Boolean).join('\n');
   }
 
   // ===================== הגדרות קמפיין — מנהל קמפיין בלבד =====================
@@ -1609,9 +1679,17 @@
         '<div class="field"><label>שורת תודה (מתחת לכרטיס, תמיד מוצגת)</label><textarea id="cs-inv-footer" rows="2">' + esc(s.inviteFooterText || '') + '</textarea></div>' +
 
         '<hr class="divider">' +
-        '<div class="sec-title">משפטי עידוד</div>' +
-        '<div class="hint" style="margin-bottom:10px">משפט אחד בכל שורה. מוצגים אקראית בהודעות עידוד קופצות (כל 3 עדכוני סטטוס וכל 8 אנשי קשר) ובראש לשונית הסטטיסטיקה. אפשר להוסיף, למחוק ולשנות שורות בחופשיות.</div>' +
-        '<div class="field"><textarea id="cs-quotes" rows="10">' + esc(s.motivationalQuotes || '') + '</textarea></div>' +
+        '<div class="sec-title">משפטי עידוד — כלליים</div>' +
+        '<div class="hint" style="margin-bottom:10px">כרטיס למשפט — עריכה, מחיקה והוספה בחופשיות. מוצגים אקראית בראש לשונית הסטטיסטיקה.</div>' +
+        quoteTilesBlockHtml('cs-quotes-general', quotesArray(s.quotesGeneral)) +
+
+        '<div class="sec-title" style="margin-top:20px">משפטי עידוד — לשגרירים שגייסו שותפים</div>' +
+        '<div class="hint" style="margin-bottom:10px">מוצגים בהודעה הקופצת כשמעדכנים סטטוס לאיש קשר (כל 3 עדכונים).</div>' +
+        quoteTilesBlockHtml('cs-quotes-partners', quotesArray(s.quotesPartners)) +
+
+        '<div class="sec-title" style="margin-top:20px">משפטי עידוד — לשגרירים שגייסו משתתפים</div>' +
+        '<div class="hint" style="margin-bottom:10px">מוצגים בהודעה הקופצת כשמצטרפים אנשי קשר לרשימת השגריר (כל 8 אנשים).</div>' +
+        quoteTilesBlockHtml('cs-quotes-participants', quotesArray(s.quotesParticipants)) +
 
         '<hr class="divider">' +
         '<div class="sec-title">לוגו ותמונת ההזמנה</div>' +
@@ -1636,6 +1714,7 @@
       }
       updateSharedPinVisibility();
       body.querySelector('#cs-login').onchange = updateSharedPinVisibility;
+      wireQuoteTiles(body);
 
       body.querySelector('#cs-save').onclick = function(){
         var msg = body.querySelector('#cs-msg');
@@ -1645,9 +1724,11 @@
           msg.innerHTML = '<div class="err">יש להגדיר סיסמת ברירת מחדל</div>';
           return;
         }
-        var quotesVal = body.querySelector('#cs-quotes').value;
-        if (!quotesVal.split('\n').map(function(q){ return q.trim(); }).filter(Boolean).length) {
-          msg.innerHTML = '<div class="err">צריך לפחות משפט עידוד אחד</div>';
+        var quotesGeneral = collectQuoteTiles(body, 'cs-quotes-general');
+        var quotesPartners = collectQuoteTiles(body, 'cs-quotes-partners');
+        var quotesParticipants = collectQuoteTiles(body, 'cs-quotes-participants');
+        if (!quotesGeneral || !quotesPartners || !quotesParticipants) {
+          msg.innerHTML = '<div class="err">צריך לפחות משפט עידוד אחד בכל קטגוריה</div>';
           return;
         }
         var payload = {
@@ -1663,7 +1744,9 @@
           inviteBrandText: body.querySelector('#cs-inv-brand').value.trim(),
           inviteMessageText: body.querySelector('#cs-inv-message').value.trim(),
           inviteFooterText: body.querySelector('#cs-inv-footer').value.trim(),
-          motivationalQuotes: quotesVal
+          quotesGeneral: quotesGeneral,
+          quotesPartners: quotesPartners,
+          quotesParticipants: quotesParticipants
         };
         if (sharedPin) payload.sharedPin = sharedPin;
         api('/campaign-settings', {method:'PATCH', body: JSON.stringify(payload)}).then(function(){

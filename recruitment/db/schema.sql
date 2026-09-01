@@ -32,19 +32,21 @@ CREATE TABLE IF NOT EXISTS campaign_settings (
   invite_message_text TEXT NOT NULL DEFAULT 'הרינו מתכבדים להזמינך לערב שותפות מיוחד למען מוסדות חב"ד עפולה.
 נשמח לראותך ולשתף אותך בהמשך הדרך.',
   invite_footer_text TEXT NOT NULL DEFAULT 'תודה שאתם חלק ממשפחת חב"ד עפולה 💛',
-  -- משפטי עידוד — שורה לכל משפט. מוצגים אקראית בהודעות "עידוד יזום" (checkMilestones) ובלשונית הסטטיסטיקה
-  motivational_quotes TEXT NOT NULL DEFAULT 'כל שיחה נוספת שאתם עושים היא עוד לבנה בבניין המוסדות של חב"ד עפולה — תודה על המסירות!
+  -- משפטי עידוד — שורה לכל משפט, בשלוש קטגוריות נפרדות שכל אחת ניתנת לניהול כריבועים בממשק:
+  -- כלליים (לשונית הסטטיסטיקה), שותפים (הודעה קופצת כשמעדכנים סטטוס), ומשתתפים (הודעה קופצת כשמצטרפים אנשי קשר)
+  quotes_general TEXT NOT NULL DEFAULT 'כל שיחה נוספת שאתם עושים היא עוד לבנה בבניין המוסדות של חב"ד עפולה — תודה על המסירות!
 אין דבר העומד בפני הרצון — וההתקדמות שלכם היא הוכחה חיה לכך. ממשיכים קדימה!
 הרבי תמיד אמר שכל יהודי הוא שליח — ואתם ממש מגשימים את זה בכל שיחה.
-הערב הזה יקרה בזכותכם. כל "כן" שאתם מקבלים הוא ניצחון בשביל כל הקהילה.
-מעשה קטן שלכם היום — שיחה אחת, טלפון אחד — יכול להביא שינוי גדול מחר.
 אתם לא רק מגייסים לאירוע — אתם בונים קהילה. יישר כוח!
+המוסדות של חב"ד עפולה גדלים בזכות אנשים כמוכם שמוכנים להשקיע מזמנם. תודה ענקית!
+אתם השליחים של הרבי בשטח — וכל שיחה שלכם ממשיכה את השליחות שלו.',
+  quotes_partners TEXT NOT NULL DEFAULT 'הערב הזה יקרה בזכותכם. כל "כן" שאתם מקבלים הוא ניצחון בשביל כל הקהילה.
 כל איש קשר שהתקדם בזכותכם הוא סימן שהמאמץ שלכם עובד. תמשיכו כך!
 בזכות שגרירים כמוכם, ערב השותפות הזה קורם עור וגידים מהר מהצפוי!
+לא משנה כמה קשה השיחה — כל ניסיון הוא זריעה, והקציר יגיע.',
+  quotes_participants TEXT NOT NULL DEFAULT 'מעשה קטן שלכם היום — שיחה אחת, טלפון אחד — יכול להביא שינוי גדול מחר.
 גם שיחה שלא הצליחה היא חלק מהדרך — ממשיכים לחייג, לדבר, ולהאמין.
-המוסדות של חב"ד עפולה גדלים בזכות אנשים כמוכם שמוכנים להשקיע מזמנם. תודה ענקית!
-לא משנה כמה קשה השיחה — כל ניסיון הוא זריעה, והקציר יגיע.
-אתם השליחים של הרבי בשטח — וכל שיחה שלכם ממשיכה את השליחות שלו.',
+כל שם נוסף ברשימה שלכם הוא עוד אדם שמרגיש שייך. תודה שאתם לא מוותרים!',
   logo_image BYTEA,
   logo_image_type TEXT,
   hero_image BYTEA,
@@ -125,18 +127,29 @@ ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS invite_brand_text TEXT NO
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS invite_message_text TEXT NOT NULL DEFAULT 'הרינו מתכבדים להזמינך לערב שותפות מיוחד למען מוסדות חב"ד עפולה.
 נשמח לראותך ולשתף אותך בהמשך הדרך.';
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS invite_footer_text TEXT NOT NULL DEFAULT 'תודה שאתם חלק ממשפחת חב"ד עפולה 💛';
-ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS motivational_quotes TEXT NOT NULL DEFAULT 'כל שיחה נוספת שאתם עושים היא עוד לבנה בבניין המוסדות של חב"ד עפולה — תודה על המסירות!
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS quotes_general TEXT NOT NULL DEFAULT 'כל שיחה נוספת שאתם עושים היא עוד לבנה בבניין המוסדות של חב"ד עפולה — תודה על המסירות!
 אין דבר העומד בפני הרצון — וההתקדמות שלכם היא הוכחה חיה לכך. ממשיכים קדימה!
 הרבי תמיד אמר שכל יהודי הוא שליח — ואתם ממש מגשימים את זה בכל שיחה.
-הערב הזה יקרה בזכותכם. כל "כן" שאתם מקבלים הוא ניצחון בשביל כל הקהילה.
-מעשה קטן שלכם היום — שיחה אחת, טלפון אחד — יכול להביא שינוי גדול מחר.
 אתם לא רק מגייסים לאירוע — אתם בונים קהילה. יישר כוח!
+המוסדות של חב"ד עפולה גדלים בזכות אנשים כמוכם שמוכנים להשקיע מזמנם. תודה ענקית!
+אתם השליחים של הרבי בשטח — וכל שיחה שלכם ממשיכה את השליחות שלו.';
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS quotes_partners TEXT NOT NULL DEFAULT 'הערב הזה יקרה בזכותכם. כל "כן" שאתם מקבלים הוא ניצחון בשביל כל הקהילה.
 כל איש קשר שהתקדם בזכותכם הוא סימן שהמאמץ שלכם עובד. תמשיכו כך!
 בזכות שגרירים כמוכם, ערב השותפות הזה קורם עור וגידים מהר מהצפוי!
+לא משנה כמה קשה השיחה — כל ניסיון הוא זריעה, והקציר יגיע.';
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS quotes_participants TEXT NOT NULL DEFAULT 'מעשה קטן שלכם היום — שיחה אחת, טלפון אחד — יכול להביא שינוי גדול מחר.
 גם שיחה שלא הצליחה היא חלק מהדרך — ממשיכים לחייג, לדבר, ולהאמין.
-המוסדות של חב"ד עפולה גדלים בזכות אנשים כמוכם שמוכנים להשקיע מזמנם. תודה ענקית!
-לא משנה כמה קשה השיחה — כל ניסיון הוא זריעה, והקציר יגיע.
-אתם השליחים של הרבי בשטח — וכל שיחה שלכם ממשיכה את השליחות שלו.';
+כל שם נוסף ברשימה שלכם הוא עוד אדם שמרגיש שייך. תודה שאתם לא מוותרים!';
+
+-- מעבר ממבנה קודם: עמודת motivational_quotes יחידה (שדרוג קצר-חיים) -> quotes_general, ומחיקתה
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'campaign_settings' AND column_name = 'motivational_quotes') THEN
+    UPDATE campaign_settings SET quotes_general = motivational_quotes WHERE motivational_quotes IS NOT NULL;
+    ALTER TABLE campaign_settings DROP COLUMN motivational_quotes;
+  END IF;
+END $$;
+
 UPDATE campaign_settings SET event_datetime = '2026-09-08 20:30:00+03' WHERE event_datetime IS NULL;
 DROP TABLE IF EXISTS sessions;
 
