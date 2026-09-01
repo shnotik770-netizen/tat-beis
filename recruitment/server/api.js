@@ -496,12 +496,14 @@ router.delete('/contacts/:id/comments/:commentId', requireAuth, ah(async (req, r
 
 // --- ambassadors ---
 // הרשימה עצמה פתוחה לכולם (גם בלי זהות נבחרת עדיין) — היא משמשת גם כמסך "מי אתה?"
+// שגריר חבוי (מנהל ראשי) לעולם לא מופיע ברשימה הזו — לא במסך "מי אתה?" ולא בטבלת הניהול
 router.get('/ambassadors', ah(async (req, res) => {
   const { rows } = await pool.query(`
     SELECT a.id, a.name, a.phone, a.is_admin, a.is_campaign_manager, (a.pin_hash IS NOT NULL) AS has_pin,
            COUNT(c.id)::int AS contact_count
     FROM ambassadors a
     LEFT JOIN contacts c ON c.ambassador_id = a.id
+    WHERE a.hidden = FALSE
     GROUP BY a.id
     ORDER BY a.name
   `);
@@ -510,6 +512,18 @@ router.get('/ambassadors', ah(async (req, res) => {
     isAdmin: r.is_admin, isCampaignManager: r.is_campaign_manager, hasPin: r.has_pin,
     contactCount: r.contact_count
   })));
+}));
+
+// כניסה חבויה למנהל ראשי — נקודת קצה נפרדת מ"מי אתה?", לא קשורה לשם/למזהה גלוי כלשהו.
+// הכפתור "כניסה לניהול" במסך הכניסה מבקש קוד ומעביר אותו לכאן.
+router.post('/primary-admin-login', ah(async (req, res) => {
+  const { code } = req.body || {};
+  const { rows } = await pool.query(
+    'SELECT id, name, is_admin, is_campaign_manager, pin_hash FROM ambassadors WHERE hidden = TRUE LIMIT 1'
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'לא הוגדר מנהל ראשי' });
+  if (!verifyPin(code, rows[0].pin_hash)) return res.status(401).json({ error: 'קוד שגוי' });
+  res.json({ id: rows[0].id, name: rows[0].name, isAdmin: rows[0].is_admin, isCampaignManager: rows[0].is_campaign_manager });
 }));
 
 // בדיקת קוד גישה — נקודת קצה פתוחה (משמשת את מסך "מי אתה?" לפני שיש זהות בכלל).
@@ -597,7 +611,7 @@ router.delete('/ambassadors/:id', requireAdmin, ah(async (req, res) => {
 router.get('/campaign-settings', ah(async (req, res) => {
   const { rows } = await pool.query(`
     SELECT rsvp_enabled, seating_enabled, login_mode,
-           event_name, event_tagline, event_date_text, event_datetime, event_location,
+           event_name, event_tagline, event_date_text, event_datetime, event_location, org_name,
            (logo_image IS NOT NULL) AS has_logo, (hero_image IS NOT NULL) AS has_hero,
            (shared_login_pin_hash IS NOT NULL) AS has_shared_pin
     FROM campaign_settings WHERE id = 1
@@ -612,6 +626,7 @@ router.get('/campaign-settings', ah(async (req, res) => {
     eventDateText: s.event_date_text,
     eventDatetime: s.event_datetime,
     eventLocation: s.event_location,
+    orgName: s.org_name,
     hasSharedPin: !!s.has_shared_pin,
     hasCustomLogo: !!s.has_logo,
     hasCustomHero: !!s.has_hero
@@ -621,7 +636,7 @@ router.get('/campaign-settings', ah(async (req, res) => {
 router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) => {
   const {
     rsvpEnabled, seatingEnabled, loginMode, sharedPin,
-    eventName, eventTagline, eventDateText, eventDatetime, eventLocation
+    eventName, eventTagline, eventDateText, eventDatetime, eventLocation, orgName
   } = req.body || {};
   const updates = [];
   const values = [];
@@ -638,6 +653,7 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
   if (eventDateText !== undefined) { updates.push(`event_date_text = $${i++}`); values.push(eventDateText.trim()); }
   if (eventDatetime !== undefined) { updates.push(`event_datetime = $${i++}`); values.push(eventDatetime || null); }
   if (eventLocation !== undefined) { updates.push(`event_location = $${i++}`); values.push(eventLocation.trim()); }
+  if (orgName !== undefined) { updates.push(`org_name = $${i++}`); values.push(orgName.trim()); }
   if (!updates.length) return res.json({ ok: true });
   updates.push('updated_at = now()');
   await pool.query(`UPDATE campaign_settings SET ${updates.join(', ')} WHERE id = 1`, values);
@@ -676,7 +692,7 @@ router.delete('/campaign-settings/hero', requireCampaignManager, ah(async (req, 
 
 // --- סטטיסטיקה ולוח מובילים (פתוח לכל שגריר, לא רק למנהל — כדי לעודד ולהראות התקדמות) ---
 router.get('/stats/ambassadors', requireAuth, ah(async (req, res) => {
-  const { rows: ambs } = await pool.query('SELECT id, name FROM ambassadors ORDER BY name');
+  const { rows: ambs } = await pool.query('SELECT id, name FROM ambassadors WHERE hidden = FALSE ORDER BY name');
   const { rows: statusCounts } = await pool.query(`
     SELECT ambassador_id, status, COUNT(*)::int AS cnt
     FROM contacts

@@ -328,16 +328,29 @@
   function renderPicker(){
     var app = document.getElementById('app');
     var ambs = state.ambassadors;
+    var cs = state.campaignSettings;
+    var titleText = (cs && cs.eventName ? cs.eventName : 'ערב שותפות') + ' — ' + (cs && cs.orgName ? cs.orgName : 'חב"ד עפולה');
     app.innerHTML =
       '<div class="login-wrap"><div class="login-card">' +
         '<div class="emoji">🤝</div>' +
-        '<h2>ערב שותפות — בית ספר חב"ד עפולה</h2>' +
+        '<h2>' + esc(titleText) + '</h2>' +
         '<p>מי אתה?</p>' +
         (ambs.length ? '<div class="field"><input id="pk-search" placeholder="חיפוש שם…"></div>' : '') +
         '<div id="pk-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:6px"></div>' +
         (!ambs.length ? '<div class="hint">עדיין אין שגרירים ברשימה.</div>' : '') +
         '<div class="hint">אם השם שלך לא מופיע — בקש מהמנהל להוסיף אותך ברשימת השגרירים.</div>' +
+        '<div style="margin-top:18px"><a href="#" id="pk-primary-login" style="font-size:11px;color:var(--muted)">כניסה לניהול</a></div>' +
       '</div></div>';
+
+    app.querySelector('#pk-primary-login').onclick = function(e){
+      e.preventDefault();
+      var code = window.prompt('קוד גישה:');
+      if (!code) return;
+      api('/primary-admin-login', {method:'POST', body: JSON.stringify({code:code})}).then(function(amb){
+        setIdentity(amb);
+        loadShared().then(renderApp);
+      }).catch(function(e){ alert(e.message); });
+    };
 
     var loginMode = state.campaignSettings ? state.campaignSettings.loginMode : 'none';
 
@@ -396,7 +409,7 @@
       '<div class="topbar">' +
         '<div style="display:flex;align-items:center;gap:10px">' +
           '<img src="/assets/logo.png" alt="עכשיו צומחים" class="topbar-logo">' +
-          '<div><h1>' + esc((state.campaignSettings && state.campaignSettings.eventName) || 'ערב שותפות') + ' — חב"ד עפולה</h1>' +
+          '<div><h1>' + esc((state.campaignSettings && state.campaignSettings.eventName) || 'ערב שותפות') + ' — ' + esc((state.campaignSettings && state.campaignSettings.orgName) || 'חב"ד עפולה') + '</h1>' +
             '<div class="sub">שלום, ' + esc(state.me.name) +
               (state.me.isCampaignManager ? ' <span class="badge" style="background:#7c3aed">⭐ מנהל קמפיין</span>' : (state.me.isAdmin ? ' <span class="badge">מנהל שגרירים</span>' : '')) +
             '</div>' +
@@ -1572,6 +1585,7 @@
 
         '<hr class="divider">' +
         '<div class="sec-title">פרטי האירוע</div>' +
+        '<div class="field"><label>שם הארגון</label><input id="cs-org" value="' + esc(s.orgName || '') + '"></div>' +
         '<div class="field"><label>שם האירוע</label><input id="cs-name" value="' + esc(s.eventName || '') + '"></div>' +
         '<div class="field"><label>כותרת שיווקית (Tagline)</label><input id="cs-tagline" value="' + esc(s.eventTagline || '') + '"></div>' +
         '<div class="field"><label>תיאור תאריך/שעה (טקסט חופשי)</label><input id="cs-datetext" value="' + esc(s.eventDateText || '') + '"></div>' +
@@ -1614,6 +1628,7 @@
           rsvpEnabled: body.querySelector('#cs-rsvp').checked,
           seatingEnabled: body.querySelector('#cs-seating').checked,
           loginMode: loginMode,
+          orgName: body.querySelector('#cs-org').value.trim(),
           eventName: body.querySelector('#cs-name').value.trim(),
           eventTagline: body.querySelector('#cs-tagline').value.trim(),
           eventDateText: body.querySelector('#cs-datetext').value.trim(),

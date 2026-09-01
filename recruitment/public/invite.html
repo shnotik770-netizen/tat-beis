@@ -74,7 +74,7 @@
   'use strict';
   var API = '/api/public/invite';
   var token = location.pathname.split('/').filter(Boolean).pop();
-  var EVENT = { name: 'ערב שותפות' };
+  var EVENT = { name: 'ערב שותפות', orgName: 'חב"ד עפולה' };
 
   function esc(s){
     return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
@@ -120,7 +120,7 @@
     app.innerHTML =
       '<div class="card">' +
         '<div class="crest">🤝</div>' +
-        '<div class="brand">' + esc(EVENT.name) + ' · בית ספר חב"ד עפולה</div>' +
+        '<div class="brand">' + esc(EVENT.name) + ' · בית ספר ' + esc(EVENT.orgName) + '</div>' +
         '<div class="to-label">לכבוד</div>' +
         '<div class="guest-name">' + esc(invite.greetingName || invite.name) + '</div>' +
         companionNameLine(invite) +
@@ -130,7 +130,7 @@
         seatBox(invite) +
         (invite.rsvpEnabled === false ? '' : '<button class="btn-ghost" id="change-btn">שינוי תשובה</button>') +
       '</div>' +
-      '<div class="footer-note">תודה שאתם חלק ממשפחת חב"ד עפולה 💛</div>';
+      '<div class="footer-note">תודה שאתם חלק ממשפחת ' + esc(EVENT.orgName) + ' 💛</div>';
     if (invite.rsvpEnabled !== false) document.getElementById('change-btn').onclick = function(){ renderChoices(invite); };
   }
 
@@ -139,17 +139,17 @@
     app.innerHTML =
       '<div class="card">' +
         '<div class="crest">🤝</div>' +
-        '<div class="brand">' + esc(EVENT.name) + ' · בית ספר חב"ד עפולה</div>' +
+        '<div class="brand">' + esc(EVENT.name) + ' · בית ספר ' + esc(EVENT.orgName) + '</div>' +
         '<div class="title">הזמנה אישית</div>' +
         '<div class="to-label">לכבוד</div>' +
         '<div class="guest-name">' + esc(invite.greetingName || invite.name) + '</div>' +
         companionNameLine(invite) +
-        '<div class="invite-text">הרינו מתכבדים להזמינך ל' + esc(EVENT.name) + ' מיוחד למען מוסדות חב"ד עפולה.<br>נשמח לראותך ולשתף אותך בהמשך הדרך.</div>' +
+        '<div class="invite-text">הרינו מתכבדים להזמינך ל' + esc(EVENT.name) + ' מיוחד למען מוסדות ' + esc(EVENT.orgName) + '.<br>נשמח לראותך ולשתף אותך בהמשך הדרך.</div>' +
         seatBox(invite) +
         '<hr class="divider">' +
         '<div id="rsvp-area"></div>' +
       '</div>' +
-      '<div class="footer-note">תודה שאתם חלק ממשפחת חב"ד עפולה 💛</div>';
+      '<div class="footer-note">תודה שאתם חלק ממשפחת ' + esc(EVENT.orgName) + ' 💛</div>';
 
     if (invite.rsvpEnabled === false) {
       app.querySelector('#rsvp-area').innerHTML = '<div class="hint">אישורי הגעה ייפתחו בקרוב — נעדכן אתכם! 💛</div>';
@@ -192,6 +192,7 @@
   function loadEventSettings(){
     return fetch('/api/campaign-settings').then(function(r){ return r.json(); }).then(function(s){
       if (s.eventName) EVENT.name = s.eventName;
+      if (s.orgName) EVENT.orgName = s.orgName;
       function set(id, v){ if (v) document.getElementById(id).textContent = v; }
       set('ev-tagline', s.eventTagline);
       set('ev-date', s.eventDateText);

@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS ambassadors (
   phone TEXT,
   is_admin BOOLEAN NOT NULL DEFAULT FALSE,
   is_campaign_manager BOOLEAN NOT NULL DEFAULT FALSE,
+  hidden BOOLEAN NOT NULL DEFAULT FALSE, -- "מנהל ראשי": לא מופיע ברשימת "מי אתה?", נכנסים אליו רק דרך קוד ייעודי
   pin_hash TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -24,6 +25,7 @@ CREATE TABLE IF NOT EXISTS campaign_settings (
   event_date_text TEXT NOT NULL DEFAULT 'יום שלישי · כ"ו אלול · 8.9 · בשעה 20:30',
   event_datetime TIMESTAMPTZ,
   event_location TEXT NOT NULL DEFAULT 'אולמי האושר, עפולה',
+  org_name TEXT NOT NULL DEFAULT 'חב"ד עפולה',
   logo_image BYTEA,
   logo_image_type TEXT,
   hero_image BYTEA,
@@ -98,6 +100,8 @@ ALTER TABLE contacts ADD COLUMN IF NOT EXISTS attending_with_companion BOOLEAN;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS invite_greeting_name TEXT;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS invite_companion_name TEXT;
 ALTER TABLE ambassadors ADD COLUMN IF NOT EXISTS is_campaign_manager BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE ambassadors ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS org_name TEXT NOT NULL DEFAULT 'חב"ד עפולה';
 UPDATE campaign_settings SET event_datetime = '2026-09-08 20:30:00+03' WHERE event_datetime IS NULL;
 DROP TABLE IF EXISTS sessions;
 

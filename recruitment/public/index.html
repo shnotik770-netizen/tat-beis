@@ -41,10 +41,10 @@
 
   <div class="card">
     <div class="crest">🤝</div>
-    <div class="brand">בית ספר חב"ד עפולה</div>
+    <div class="brand">בית ספר <span id="ev-org">חב"ד עפולה</span></div>
     <div class="title" id="ev-name">ערב שותפות</div>
     <div class="body-text">
-      ערב מיוחד לכל הקהילה, לחיזוק ולצמיחה של מוסדות חב"ד עפולה.<br>
+      ערב מיוחד לכל הקהילה, לחיזוק ולצמיחה של מוסדות <span id="ev-org2">חב"ד עפולה</span>.<br>
       מוזמנים שקיבלו הזמנה אישית מוזמנים לאשר הגעה דרך הקישור ששלחנו להם.<br>
       נשמח לראותכם ולשתף אתכם בהמשך הדרך! 💛
     </div>
@@ -58,7 +58,9 @@
     set('ev-date', s.eventDateText);
     set('ev-location', s.eventLocation);
     set('ev-name', s.eventName);
-    if (s.eventName) document.title = s.eventName + ' — בית ספר חב"ד עפולה';
+    set('ev-org', s.orgName);
+    set('ev-org2', s.orgName);
+    if (s.eventName || s.orgName) document.title = (s.eventName || 'ערב שותפות') + ' — בית ספר ' + (s.orgName || 'חב"ד עפולה');
   }).catch(function(){});
 })();
 </script>

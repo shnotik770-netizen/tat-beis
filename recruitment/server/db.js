@@ -17,8 +17,30 @@ async function migrate() {
   await pool.query(schema);
   await seedAdmin();
   await promoteExistingAdminsToCampaignManagers();
+  await setupPrimaryAdmin();
   await backfillInviteTokens();
   console.log('✅ Database schema is up to date.');
+}
+
+// "מנהל ראשי" חבוי: לא מופיע ברשימת "מי אתה?", נכנסים אליו רק דרך "כניסה לניהול" עם קוד ייעודי.
+// במעבר חד-פעמי (מזוהה לפי קיום שורה חבויה) הופך להיות מנהל-הקמפיין היחיד — כל מי שקיבל
+// הרשאת מנהל-קמפיין אוטומטית בשדרוג הקודם (promoteExistingAdminsToCampaignManagers) חוזר
+// להיות מנהל-שגרירים רגיל, עם כל שאר ההרשאות שהיו לו (הוספת שגרירים, ייבוא, וכו') ללא שינוי.
+async function setupPrimaryAdmin() {
+  const { rows: existing } = await pool.query('SELECT id FROM ambassadors WHERE hidden = TRUE LIMIT 1');
+  if (existing.length) return;
+  const { rows: demoted } = await pool.query(
+    'UPDATE ambassadors SET is_campaign_manager = FALSE WHERE is_campaign_manager = TRUE RETURNING name'
+  );
+  const primaryPin = process.env.PRIMARY_ADMIN_PIN || '7706770';
+  await pool.query(
+    'INSERT INTO ambassadors (name, is_admin, is_campaign_manager, hidden, pin_hash) VALUES ($1, TRUE, TRUE, TRUE, $2)',
+    ['מנהל ראשי', hashPin(primaryPin)]
+  );
+  console.log(
+    '🔒 נוצר "מנהל ראשי" חבוי — נגיש רק דרך "כניסה לניהול" בתחתית מסך "מי אתה?" עם קוד ייעודי.' +
+    (demoted.length ? ` ${demoted.map(a => a.name).join(', ')} חזרו למנהלי שגרירים רגילים (שאר ההרשאות שלהם לא השתנו).` : '')
+  );
 }
 
 // שדרוג מבנה: מוסיפים דרג "מנהל קמפיין" מעל "מנהל שגרירים". במעבר חד-פעמי, כדי שאף
