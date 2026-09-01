@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS campaign_settings (
   event_datetime TIMESTAMPTZ,
   event_location TEXT NOT NULL DEFAULT 'אולמי האושר, עפולה',
   org_name TEXT NOT NULL DEFAULT 'חב"ד עפולה',
+  -- שלושת הטקסטים החופשיים בעמוד ההזמנה האישית (invite.html) — טקסט קבוע לגמרי, לא מורכב ממשתנים,
+  -- כדי שמנהל קמפיין יוכל לנסח אותם בדיוק כרצונו כולל שורות חדשות (\n מוצג כ-<br> בתצוגה)
+  invite_brand_text TEXT NOT NULL DEFAULT 'ערב שותפות · בית ספר חב"ד עפולה',
+  invite_message_text TEXT NOT NULL DEFAULT 'הרינו מתכבדים להזמינך לערב שותפות מיוחד למען מוסדות חב"ד עפולה.
+נשמח לראותך ולשתף אותך בהמשך הדרך.',
+  invite_footer_text TEXT NOT NULL DEFAULT 'תודה שאתם חלק ממשפחת חב"ד עפולה 💛',
   logo_image BYTEA,
   logo_image_type TEXT,
   hero_image BYTEA,
@@ -102,6 +108,10 @@ ALTER TABLE contacts ADD COLUMN IF NOT EXISTS invite_companion_name TEXT;
 ALTER TABLE ambassadors ADD COLUMN IF NOT EXISTS is_campaign_manager BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE ambassadors ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS org_name TEXT NOT NULL DEFAULT 'חב"ד עפולה';
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS invite_brand_text TEXT NOT NULL DEFAULT 'ערב שותפות · בית ספר חב"ד עפולה';
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS invite_message_text TEXT NOT NULL DEFAULT 'הרינו מתכבדים להזמינך לערב שותפות מיוחד למען מוסדות חב"ד עפולה.
+נשמח לראותך ולשתף אותך בהמשך הדרך.';
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS invite_footer_text TEXT NOT NULL DEFAULT 'תודה שאתם חלק ממשפחת חב"ד עפולה 💛';
 UPDATE campaign_settings SET event_datetime = '2026-09-08 20:30:00+03' WHERE event_datetime IS NULL;
 DROP TABLE IF EXISTS sessions;
 

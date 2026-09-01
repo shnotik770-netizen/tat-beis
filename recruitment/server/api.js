@@ -612,6 +612,7 @@ router.get('/campaign-settings', ah(async (req, res) => {
   const { rows } = await pool.query(`
     SELECT rsvp_enabled, seating_enabled, login_mode,
            event_name, event_tagline, event_date_text, event_datetime, event_location, org_name,
+           invite_brand_text, invite_message_text, invite_footer_text,
            (logo_image IS NOT NULL) AS has_logo, (hero_image IS NOT NULL) AS has_hero,
            (shared_login_pin_hash IS NOT NULL) AS has_shared_pin
     FROM campaign_settings WHERE id = 1
@@ -627,6 +628,9 @@ router.get('/campaign-settings', ah(async (req, res) => {
     eventDatetime: s.event_datetime,
     eventLocation: s.event_location,
     orgName: s.org_name,
+    inviteBrandText: s.invite_brand_text,
+    inviteMessageText: s.invite_message_text,
+    inviteFooterText: s.invite_footer_text,
     hasSharedPin: !!s.has_shared_pin,
     hasCustomLogo: !!s.has_logo,
     hasCustomHero: !!s.has_hero
@@ -636,7 +640,8 @@ router.get('/campaign-settings', ah(async (req, res) => {
 router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) => {
   const {
     rsvpEnabled, seatingEnabled, loginMode, sharedPin,
-    eventName, eventTagline, eventDateText, eventDatetime, eventLocation, orgName
+    eventName, eventTagline, eventDateText, eventDatetime, eventLocation, orgName,
+    inviteBrandText, inviteMessageText, inviteFooterText
   } = req.body || {};
   const updates = [];
   const values = [];
@@ -654,6 +659,9 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
   if (eventDatetime !== undefined) { updates.push(`event_datetime = $${i++}`); values.push(eventDatetime || null); }
   if (eventLocation !== undefined) { updates.push(`event_location = $${i++}`); values.push(eventLocation.trim()); }
   if (orgName !== undefined) { updates.push(`org_name = $${i++}`); values.push(orgName.trim()); }
+  if (inviteBrandText !== undefined) { updates.push(`invite_brand_text = $${i++}`); values.push(inviteBrandText.replace(/\r\n/g, '\n').trim()); }
+  if (inviteMessageText !== undefined) { updates.push(`invite_message_text = $${i++}`); values.push(inviteMessageText.replace(/\r\n/g, '\n').trim()); }
+  if (inviteFooterText !== undefined) { updates.push(`invite_footer_text = $${i++}`); values.push(inviteFooterText.replace(/\r\n/g, '\n').trim()); }
   if (!updates.length) return res.json({ ok: true });
   updates.push('updated_at = now()');
   await pool.query(`UPDATE campaign_settings SET ${updates.join(', ')} WHERE id = 1`, values);

@@ -1593,6 +1593,13 @@
         '<div class="field"><label>מיקום</label><input id="cs-location" value="' + esc(s.eventLocation || '') + '"></div>' +
 
         '<hr class="divider">' +
+        '<div class="sec-title">טקסטים בעמוד ההזמנה האישית</div>' +
+        '<div class="hint" style="margin-bottom:10px">הטקסטים המדוייקים שמופיעים על כרטיס ההזמנה שהמוזמנים מקבלים בקישור האישי — עריכה חופשית לגמרי, כולל שורות חדשות (Enter).</div>' +
+        '<div class="field"><label>שורת המיתוג (למעלה בכרטיס)</label><textarea id="cs-inv-brand" rows="2">' + esc(s.inviteBrandText || '') + '</textarea></div>' +
+        '<div class="field"><label>פסקת ההזמנה (מוצגת לפני אישור הגעה)</label><textarea id="cs-inv-message" rows="4">' + esc(s.inviteMessageText || '') + '</textarea></div>' +
+        '<div class="field"><label>שורת תודה (מתחת לכרטיס, תמיד מוצגת)</label><textarea id="cs-inv-footer" rows="2">' + esc(s.inviteFooterText || '') + '</textarea></div>' +
+
+        '<hr class="divider">' +
         '<div class="sec-title">לוגו ותמונת ההזמנה</div>' +
         '<div class="field"><label>לוגו (בפינת הכותרת)</label>' +
           '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">' +
@@ -1633,7 +1640,10 @@
           eventTagline: body.querySelector('#cs-tagline').value.trim(),
           eventDateText: body.querySelector('#cs-datetext').value.trim(),
           eventDatetime: fromDatetimeLocal(body.querySelector('#cs-datetime').value),
-          eventLocation: body.querySelector('#cs-location').value.trim()
+          eventLocation: body.querySelector('#cs-location').value.trim(),
+          inviteBrandText: body.querySelector('#cs-inv-brand').value.trim(),
+          inviteMessageText: body.querySelector('#cs-inv-message').value.trim(),
+          inviteFooterText: body.querySelector('#cs-inv-footer').value.trim()
         };
         if (sharedPin) payload.sharedPin = sharedPin;
         api('/campaign-settings', {method:'PATCH', body: JSON.stringify(payload)}).then(function(){
