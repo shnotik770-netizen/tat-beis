@@ -1304,7 +1304,9 @@
   }
 
   // ===================== סטטיסטיקה ולוח מובילים =====================
-  var MOTIVATIONAL_QUOTES = [
+  // משפטי העידוד ניתנים לעריכה מלאה דרך "⭐ הגדרות קמפיין" (state.campaignSettings.motivationalQuotes,
+  // שורה למשפט) — הרשימה כאן היא ברירת מחדל בלבד, למקרה שההגדרות עדיין לא נטענו.
+  var DEFAULT_MOTIVATIONAL_QUOTES = [
     'כל שיחה נוספת שאתם עושים היא עוד לבנה בבניין המוסדות של חב"ד עפולה — תודה על המסירות!',
     'אין דבר העומד בפני הרצון — וההתקדמות שלכם היא הוכחה חיה לכך. ממשיכים קדימה!',
     'הרבי תמיד אמר שכל יהודי הוא שליח — ואתם ממש מגשימים את זה בכל שיחה.',
@@ -1318,6 +1320,13 @@
     'לא משנה כמה קשה השיחה — כל ניסיון הוא זריעה, והקציר יגיע.',
     'אתם השליחים של הרבי בשטח — וכל שיחה שלכם ממשיכה את השליחות שלו.'
   ];
+
+  function motivationalQuotes(){
+    var raw = state.campaignSettings && state.campaignSettings.motivationalQuotes;
+    if (!raw) return DEFAULT_MOTIVATIONAL_QUOTES;
+    var lines = raw.split('\n').map(function(q){ return q.trim(); }).filter(Boolean);
+    return lines.length ? lines : DEFAULT_MOTIVATIONAL_QUOTES;
+  }
 
   function pickRandom(arr, n){
     var copy = arr.slice();
@@ -1351,7 +1360,7 @@
         var key = kind + count;
         if (state.celebrated[key]) return;
         state.celebrated[key] = true;
-        showMilestoneToast(prefix + pickRandom(MOTIVATIONAL_QUOTES, 1)[0]);
+        showMilestoneToast(prefix + pickRandom(motivationalQuotes(), 1)[0]);
       }
       maybeCelebrate('u', me.updatesCount, 3, '🎉 כל הכבוד! כבר עדכנתם סטטוס ל-' + me.updatesCount + ' אנשים — ');
       maybeCelebrate('t', me.total, 8, '🌟 מעולה! כבר ' + me.total + ' אנשי קשר ברשימה שלכם — ');
@@ -1417,7 +1426,7 @@
         return (b.byStatus['מגיע לאירוע'] || 0) - (a.byStatus['מגיע לאירוע'] || 0);
       });
 
-      var quotes = pickRandom(MOTIVATIONAL_QUOTES, 2);
+      var quotes = pickRandom(motivationalQuotes(), 2);
       var top = arriving[0];
 
       content.innerHTML =
@@ -1600,6 +1609,11 @@
         '<div class="field"><label>שורת תודה (מתחת לכרטיס, תמיד מוצגת)</label><textarea id="cs-inv-footer" rows="2">' + esc(s.inviteFooterText || '') + '</textarea></div>' +
 
         '<hr class="divider">' +
+        '<div class="sec-title">משפטי עידוד</div>' +
+        '<div class="hint" style="margin-bottom:10px">משפט אחד בכל שורה. מוצגים אקראית בהודעות עידוד קופצות (כל 3 עדכוני סטטוס וכל 8 אנשי קשר) ובראש לשונית הסטטיסטיקה. אפשר להוסיף, למחוק ולשנות שורות בחופשיות.</div>' +
+        '<div class="field"><textarea id="cs-quotes" rows="10">' + esc(s.motivationalQuotes || '') + '</textarea></div>' +
+
+        '<hr class="divider">' +
         '<div class="sec-title">לוגו ותמונת ההזמנה</div>' +
         '<div class="field"><label>לוגו (בפינת הכותרת)</label>' +
           '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">' +
@@ -1631,6 +1645,11 @@
           msg.innerHTML = '<div class="err">יש להגדיר סיסמת ברירת מחדל</div>';
           return;
         }
+        var quotesVal = body.querySelector('#cs-quotes').value;
+        if (!quotesVal.split('\n').map(function(q){ return q.trim(); }).filter(Boolean).length) {
+          msg.innerHTML = '<div class="err">צריך לפחות משפט עידוד אחד</div>';
+          return;
+        }
         var payload = {
           rsvpEnabled: body.querySelector('#cs-rsvp').checked,
           seatingEnabled: body.querySelector('#cs-seating').checked,
@@ -1643,7 +1662,8 @@
           eventLocation: body.querySelector('#cs-location').value.trim(),
           inviteBrandText: body.querySelector('#cs-inv-brand').value.trim(),
           inviteMessageText: body.querySelector('#cs-inv-message').value.trim(),
-          inviteFooterText: body.querySelector('#cs-inv-footer').value.trim()
+          inviteFooterText: body.querySelector('#cs-inv-footer').value.trim(),
+          motivationalQuotes: quotesVal
         };
         if (sharedPin) payload.sharedPin = sharedPin;
         api('/campaign-settings', {method:'PATCH', body: JSON.stringify(payload)}).then(function(){

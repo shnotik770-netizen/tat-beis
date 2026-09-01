@@ -612,7 +612,7 @@ router.get('/campaign-settings', ah(async (req, res) => {
   const { rows } = await pool.query(`
     SELECT rsvp_enabled, seating_enabled, login_mode,
            event_name, event_tagline, event_date_text, event_datetime, event_location, org_name,
-           invite_brand_text, invite_message_text, invite_footer_text,
+           invite_brand_text, invite_message_text, invite_footer_text, motivational_quotes,
            (logo_image IS NOT NULL) AS has_logo, (hero_image IS NOT NULL) AS has_hero,
            (shared_login_pin_hash IS NOT NULL) AS has_shared_pin
     FROM campaign_settings WHERE id = 1
@@ -631,6 +631,7 @@ router.get('/campaign-settings', ah(async (req, res) => {
     inviteBrandText: s.invite_brand_text,
     inviteMessageText: s.invite_message_text,
     inviteFooterText: s.invite_footer_text,
+    motivationalQuotes: s.motivational_quotes,
     hasSharedPin: !!s.has_shared_pin,
     hasCustomLogo: !!s.has_logo,
     hasCustomHero: !!s.has_hero
@@ -641,7 +642,7 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
   const {
     rsvpEnabled, seatingEnabled, loginMode, sharedPin,
     eventName, eventTagline, eventDateText, eventDatetime, eventLocation, orgName,
-    inviteBrandText, inviteMessageText, inviteFooterText
+    inviteBrandText, inviteMessageText, inviteFooterText, motivationalQuotes
   } = req.body || {};
   const updates = [];
   const values = [];
@@ -662,6 +663,11 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
   if (inviteBrandText !== undefined) { updates.push(`invite_brand_text = $${i++}`); values.push(inviteBrandText.replace(/\r\n/g, '\n').trim()); }
   if (inviteMessageText !== undefined) { updates.push(`invite_message_text = $${i++}`); values.push(inviteMessageText.replace(/\r\n/g, '\n').trim()); }
   if (inviteFooterText !== undefined) { updates.push(`invite_footer_text = $${i++}`); values.push(inviteFooterText.replace(/\r\n/g, '\n').trim()); }
+  if (motivationalQuotes !== undefined) {
+    const cleaned = motivationalQuotes.replace(/\r\n/g, '\n').split('\n').map(q => q.trim()).filter(Boolean).join('\n');
+    if (!cleaned) return res.status(400).json({ error: 'צריך לפחות משפט עידוד אחד' });
+    updates.push(`motivational_quotes = $${i++}`); values.push(cleaned);
+  }
   if (!updates.length) return res.json({ ok: true });
   updates.push('updated_at = now()');
   await pool.query(`UPDATE campaign_settings SET ${updates.join(', ')} WHERE id = 1`, values);
