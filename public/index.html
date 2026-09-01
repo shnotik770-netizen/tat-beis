@@ -508,6 +508,7 @@ textarea { resize: vertical; line-height: 1.5; }
       <div class="ni" id="n-pay" onclick="go('pay');closeSide()">💳 תשלומים</div>
       <div class="ni" id="n-debt" onclick="go('debt');closeSide()">⚠️ חובות<span class="ni-n" id="debtN" style="display:none">0</span></div>
       <div class="ni" id="n-imp" onclick="go('imp');closeSide()">📥 שיוך תשלומים<span class="ni-n" id="impN" style="display:none">0</span></div>
+      <div class="ni" id="n-recon" onclick="go('recon');closeSide()">🔄 התאמת זיכויים</div>
     </nav>
   </div>
   <div class="side-backdrop" id="sideBackdrop" onclick="closeSide()"></div>
@@ -652,8 +653,8 @@ function closeSide(){
 
 function go(page, stFilter, stCls, stInst) {
   closeFab();
-  ['dash','st','cat','dem','pay','debt','imp'].forEach(function(p){ document.getElementById('n-'+p).classList.toggle('on', p===page); });
-  const titles = {dash:'דשבורד', st:'תלמידים', cat:'סיווגים', dem:'דרישות', pay:'תשלומים', debt:'חובות', imp:'שיוך תשלומים'};
+  ['dash','st','cat','dem','pay','debt','imp','recon'].forEach(function(p){ const el=document.getElementById('n-'+p); if(el) el.classList.toggle('on', p===page); });
+  const titles = {dash:'דשבורד', st:'תלמידים', cat:'סיווגים', dem:'דרישות', pay:'תשלומים', debt:'חובות', imp:'שיוך תשלומים', recon:'התאמת זיכויים'};
   document.getElementById('tbTitle').textContent = titles[page];
   document.getElementById('tbAct').innerHTML = '';
   document.getElementById('pg').innerHTML = '<div class="loading">טוען...</div>';
@@ -664,6 +665,7 @@ function go(page, stFilter, stCls, stInst) {
     else if(page==='dem') renderDemands('');
     else if(page==='pay') renderPayments();
     else if(page==='debt') renderDebts('','');
+    else if(page==='recon') renderRecon();
     else renderImp();
     updNavBadges();
   });
@@ -2750,6 +2752,63 @@ function openExportDebt(){
     '<div class="fg"><label>רשימת חובות</label><textarea readonly style="height:150px;font-family:monospace;font-size:11px">'+esc(listTxt)+'</textarea></div>' +
     '<div class="fg"><label>הודעות להורים</label><textarea readonly style="height:150px;font-family:monospace;font-size:11px">'+esc(msgTxt)+'</textarea></div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">סגור</button></div>');
+}
+
+// ── התאמת זיכויים לדרישות ──
+// מסך גלובלי: מציג כל תלמיד שיש לו זיכוי כללי (תשלום ללא שיוך לדרישה) שאפשר לשייך לדרישות פתוחות,
+// ומראה בדיוק אילו דרישות ייסגרו. לחיצה על "שייך את המסומנים" מפצלת (בשרת) את התשלום הכללי
+// לרשומות פר-דרישה — סה"כ ששולם לא משתנה, רק מסווג מחדש.
+function renderRecon(){
+  document.getElementById('tbAct').innerHTML = '';
+  const box = document.getElementById('pg');
+  box.innerHTML = '<div class="loading">בודק זיכויים מול דרישות פתוחות...</div>';
+  google.script.run.withSuccessHandler(renderReconResults).withFailureHandler(function(e){ box.innerHTML='<div class="card">שגיאה: '+esc(e.message)+'</div>'; }).getReconciliationReport();
+}
+function renderReconResults(list){
+  window._reconData = list || [];
+  const box = document.getElementById('pg');
+  if(!window._reconData.length){
+    box.innerHTML = '<div class="card"><div class="empty">אין זיכויים כלליים שניתן לשייך לדרישות פתוחות 🎉<br><span class="t2">(זיכוי כללי = תשלום שנרשם ללא שיוך לדרישה מסוימת)</span></div></div>';
+    return;
+  }
+  const cards = window._reconData.map(function(r, i){
+    const demRows = r.demands.map(function(d){
+      return '<tr><td>'+esc(d.title)+'</td><td>₪'+d.remainingBefore.toLocaleString()+'</td><td style="color:var(--grn)">₪'+d.covered.toLocaleString()+'</td><td>'+(d.remainingAfter>0.01?'<span class="badge rd">₪'+d.remainingAfter.toLocaleString()+'</span>':'<span class="badge gr">שולם ✓</span>')+'</td></tr>';
+    }).join('');
+    const payRows = r.genPays.map(function(p){
+      return '<span class="badge">'+esc(p.date)+' · ₪'+p.amount.toLocaleString()+(p.payer?' · '+esc(p.payer):'')+'</span>';
+    }).join(' ');
+    return '<div class="card" style="margin-bottom:10px">' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+        '<input type="checkbox" class="recon-cb" data-id="'+esc(r.studentId)+'" checked style="width:auto">' +
+        '<strong>'+esc(r.name)+'</strong> <span class="badge">'+esc(r.class||'—')+(r.institution?' · '+esc(r.institution):'')+'</span>' +
+      '</div>' +
+      '<div class="t2" style="margin-bottom:6px">זיכוי כללי זמין: '+payRows+' <strong>(סה"כ ₪'+r.totalCredit.toLocaleString()+')</strong></div>' +
+      '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:420px"><thead><tr><th>דרישה</th><th>יתרה לפני</th><th>ישויך</th><th>יתרה אחרי</th></tr></thead><tbody>'+demRows+'</tbody></table></div>' +
+      (r.leftover>0.01?'<div class="t2" style="margin-top:6px">💰 יישאר כזיכוי כללי: ₪'+r.leftover.toLocaleString()+'</div>':'') +
+    '</div>';
+  }).join('');
+  box.innerHTML =
+    '<div class="info">מוצגים תלמידים עם זיכוי כללי (תשלום ללא שיוך לדרישה) שניתן לשייך לדרישות פתוחות. השיוך מפצל את הזיכוי לפי דרישה (הישנות קודם) — סה"כ ששולם לא משתנה. תשלומים משותפים בין אחים לא משויכים אוטומטית.</div>' +
+    '<div class="sr" style="margin-bottom:10px">' +
+      '<button class="btn b-h b-sm" onclick="reconToggleAll(true)">בחר הכל</button>' +
+      '<button class="btn b-h b-sm" onclick="reconToggleAll(false)">נקה הכל</button>' +
+      '<button class="btn b-g" onclick="applyReconSelected()">✅ שייך את המסומנים</button>' +
+    '</div>' +
+    cards;
+}
+function reconToggleAll(on){
+  Array.prototype.slice.call(document.querySelectorAll('.recon-cb')).forEach(function(cb){ cb.checked = on; });
+}
+function applyReconSelected(){
+  const ids = Array.prototype.slice.call(document.querySelectorAll('.recon-cb:checked')).map(function(cb){ return cb.getAttribute('data-id'); });
+  if(!ids.length){ toast('לא נבחרו תלמידים','err'); return; }
+  if(!confirm('לשייך את הזיכויים הכלליים לדרישות עבור '+ids.length+' תלמידים?\n\nכל זיכוי יפוצל לרשומות לפי דרישה. הסכום ששולם לא משתנה — רק מסווג מחדש.')) return;
+  google.script.run.withSuccessHandler(function(r){
+    if(r&&!r.ok){ toast(r.err||'שגיאה','err'); return; }
+    toast('שויכו '+r.coveredCount+' דרישות ✓','ok');
+    go('recon');
+  }).withFailureHandler(function(e){ toast(e.message,'err'); }).applyReconciliation(ids);
 }
 
 // ── Pending Payments Import/Assign ──

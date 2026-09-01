@@ -586,6 +586,123 @@ async function deletePendingPayment(pendingId) {
   return { ok: !!rowCount };
 }
 
+// ══════════════════════════════════════════════════════════════
+// התאמת תשלומים (זיכוי כללי) לדרישות פתוחות
+// ══════════════════════════════════════════════════════════════
+// זיכוי כללי = תשלום שנרשם בלי שיוך לדרישה מסוימת. הכלי מציע לשייך אותו לדרישות הפתוחות של אותו
+// תלמיד (הישנות קודם — FIFO). מכיוון שהמודל סופר תשלום *במלואו* מול כל דרישה שהוא מקושר אליה, אי
+// אפשר "לפזר" תשלום יחיד על כמה דרישות בקישור אחד — ולכן ההצמדה מפצלת את התשלום הכללי לרשומות
+// נפרדות, אחת לכל דרישה (ורשומת שארית אם נשאר עודף), כשכל רשומה שומרת על אותו משלם/תאריך/אמצעי.
+// סה"כ ששילם התלמיד לא משתנה — רק מסווג מחדש מ"זיכוי כללי" ל"משויך לדרישה".
+function dmyKey(dmy) {
+  const p = String(dmy || '').split('/');
+  return p.length === 3 ? (p[2] + '-' + p[1].padStart(2, '0') + '-' + p[0].padStart(2, '0')) : '0000-00-00';
+}
+function buildReconcilePlan(studentId, demands, payments) {
+  const round2 = n => Math.round(n * 100) / 100;
+  const openDemands = demands
+    .filter(d => d.studentIds.includes(studentId))
+    .map(d => ({ id: d.id, title: d.title, amount: d.amount, remaining: round2(d.amount - logic.paidOnDemand(studentId, d.id, payments)), createdDate: d.createdDate }))
+    .filter(d => d.remaining > 0.01)
+    .sort((a, b) => dmyKey(a.createdDate) < dmyKey(b.createdDate) ? -1 : 1);
+  // רק זיכויים כלליים של תלמיד יחיד (לא תשלום משותף בין אחים) — פיצול תשלום משותף מסוכן ולכן נמנע
+  const genPays = payments
+    .filter(p => p.demandIds.length === 0 && p.studentIds.length === 1 && p.studentIds[0] === studentId)
+    .map(p => ({ id: p.id, date: p.date, payer: p.payer, method: p.method, notes: p.notes, amount: round2(parseFloat(p.total) || 0) }))
+    .filter(p => p.amount > 0.01)
+    .sort((a, b) => dmyKey(a.date) < dmyKey(b.date) ? -1 : 1);
+
+  const remainingByDemand = {};
+  openDemands.forEach(d => { remainingByDemand[d.id] = d.remaining; });
+  const alloc = [];               // {paymentId, demandId, amount}
+  const leftoverByPayment = {};   // כמה נשאר בכל תשלום ולא הוקצה (יישאר כזיכוי כללי)
+  let di = 0;
+  genPays.forEach(p => {
+    let credit = p.amount;
+    while (credit > 0.01 && di < openDemands.length) {
+      const d = openDemands[di];
+      const rem = remainingByDemand[d.id];
+      if (rem <= 0.01) { di++; continue; }
+      const take = round2(Math.min(credit, rem));
+      alloc.push({ paymentId: p.id, demandId: d.id, amount: take });
+      remainingByDemand[d.id] = round2(rem - take);
+      credit = round2(credit - take);
+      if (remainingByDemand[d.id] <= 0.01) di++;
+    }
+    leftoverByPayment[p.id] = round2(credit);
+  });
+  return { openDemands, genPays, alloc, leftoverByPayment };
+}
+
+async function getReconciliationReport() {
+  const [students, demands, payments] = await Promise.all([da.getAllStudents(), da.getAllDemands(), da.getAllPayments()]);
+  const round2 = n => Math.round(n * 100) / 100;
+  const result = [];
+  students.forEach(st => {
+    const plan = buildReconcilePlan(st.id, demands, payments);
+    if (!plan.alloc.length) return; // אין זיכוי כללי שאפשר לשייך לדרישה פתוחה
+    const demandView = plan.openDemands.map(d => {
+      const covered = plan.alloc.filter(a => a.demandId === d.id).reduce((s, a) => s + a.amount, 0);
+      return { title: d.title, amount: d.amount, remainingBefore: d.remaining, covered: round2(covered), remainingAfter: round2(d.remaining - covered) };
+    }).filter(d => d.covered > 0.01);
+    const totalCredit = round2(plan.genPays.reduce((s, p) => s + p.amount, 0));
+    const totalCovered = round2(plan.alloc.reduce((s, a) => s + a.amount, 0));
+    result.push({
+      studentId: st.id, name: st.lastName + ' ' + st.firstName, class: st.class, institution: st.institution || '',
+      genPays: plan.genPays.map(p => ({ date: p.date, payer: p.payer, method: p.method, amount: p.amount })),
+      demands: demandView,
+      totalCredit, totalCovered, leftover: round2(totalCredit - totalCovered)
+    });
+  });
+  return result;
+}
+
+async function applyReconciliation(studentIds) {
+  if (!Array.isArray(studentIds) || !studentIds.length) return { ok: false, err: 'לא נבחרו תלמידים' };
+  const [demands, payments] = await Promise.all([da.getAllDemands(), da.getAllPayments()]);
+  const paymentById = {}; payments.forEach(p => { paymentById[p.id] = p; });
+  let splitCount = 0, coveredCount = 0;
+  for (const sid of studentIds) {
+    const plan = buildReconcilePlan(sid, demands, payments);
+    if (!plan.alloc.length) continue;
+    const byPayment = {};
+    plan.alloc.forEach(a => { (byPayment[a.paymentId] = byPayment[a.paymentId] || []).push(a); });
+    for (const pid of Object.keys(byPayment)) {
+      const orig = paymentById[pid];
+      if (!orig) continue;
+      const chunks = byPayment[pid];
+      const leftover = plan.leftoverByPayment[pid] || 0;
+      const origDate = logic.parsePastedDate(orig.date);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM payments WHERE id=$1', [pid]);
+        for (const c of chunks) {
+          await client.query(
+            `INSERT INTO payments (id, date, payer, student_ids, demand_ids, total, amounts, method, notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [logic.uid('P'), origDate, orig.payer || '', [sid], [c.demandId], c.amount, JSON.stringify({ [sid]: c.amount }), orig.method || '', orig.notes || '']
+          );
+          coveredCount++;
+        }
+        if (leftover > 0.01) {
+          await client.query(
+            `INSERT INTO payments (id, date, payer, student_ids, demand_ids, total, amounts, method, notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [logic.uid('P'), origDate, orig.payer || '', [sid], [], leftover, JSON.stringify({ [sid]: leftover }), orig.method || '', orig.notes || '']
+          );
+        }
+        await client.query('COMMIT');
+        splitCount++;
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
+    }
+  }
+  return { ok: true, splitCount, coveredCount };
+}
+
 module.exports = {
   pingTest, getAllData,
   addStudent, updateStudent, deleteStudent, importStudentsFromPaste, backfillFamilyParentInfo,
@@ -593,5 +710,6 @@ module.exports = {
   addDemand, updateDemand, removeStudentFromDemand, splitStudentFromDemand, addDemandVaried, deleteDemand,
   addPayment, deletePayment, updatePayment,
   getStudentLedger, getFamilyLedger, getDashboard, getDebtExport,
-  getPendingPayments, importPendingFromPaste, assignPendingPayment, deletePendingPayment
+  getPendingPayments, importPendingFromPaste, assignPendingPayment, deletePendingPayment,
+  getReconciliationReport, applyReconciliation
 };
