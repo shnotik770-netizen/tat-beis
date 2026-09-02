@@ -133,6 +133,17 @@
     text-align:center}
   .stat-tile .stat-num{font-size:24px;font-weight:800;line-height:1.1}
   .stat-tile .stat-label{font-size:11px;color:var(--muted);font-weight:600;margin-top:4px;line-height:1.3}
+  .filter-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+  .filter-tiles.filter-tiles-2{grid-template-columns:repeat(2,1fr)}
+  .filter-tile{background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:8px 6px;text-align:center}
+  .filter-tile label{display:block;font-size:11px;color:var(--muted);font-weight:700;margin-bottom:4px}
+  .filter-tile select{width:100%;border:none;background:none;text-align:center;font-size:12.5px;
+    font-weight:700;color:var(--text);padding:0}
+  .filter-tile select:focus{outline:none}
+  .filter-tile-btn{cursor:pointer;border-color:var(--warn)}
+  .filter-tile-btn .filter-tile-count{font-size:20px;font-weight:800;color:var(--warn)}
+  .filter-tile-btn.active{background:var(--warn)}
+  .filter-tile-btn.active label,.filter-tile-btn.active .filter-tile-count{color:#fff}
   .divider{border:none;border-top:1px solid var(--border);margin:16px 0}
   .timeline{display:flex;flex-direction:column;gap:0;margin-top:6px}
   .tl-item{display:flex;gap:10px;padding:6px 0;position:relative}
@@ -477,7 +488,7 @@
     ]).then(function(res){
       var contacts = res[0];
       var assignAmbs = res[1];
-      var filters = {q:'', cat:'', status:'', amb:'', uncategorized:false, sort:'name'};
+      var filters = {q:'', cat:'', status:'', amb:'', uncategorized:false, uncontacted:false, sort:'name'};
       var selected = {};
 
       // חיפוש חכם: מנקה ניקוד ורווחים כפולים, ומתעלם מסדר המילים (כך ש"ראובן" ימצא "ראובן משה" וגם "משה ראובן")
@@ -498,6 +509,7 @@
           if (filters.amb === 'none' && c.ambassador) return false;
           if (filters.amb && filters.amb !== 'none' && (!c.ambassador || String(c.ambassador.id) !== filters.amb)) return false;
           if (filters.uncategorized && c.categories.length) return false;
+          if (filters.uncontacted && c.status) return false;
           return true;
         });
         list.sort(function(a, b){
@@ -520,35 +532,55 @@
           '<span><span class="dot" style="background:#9ca3af"></span>' + cNoContact + ' לא נוצר קשר</span>' +
         '</div>';
       }
+      var sortOptionsHtml =
+        '<option value="name">מיון: לפי שם (א-ת)</option>' +
+        '<option value="newest">מיון: החדשים ביותר</option>' +
+        '<option value="status">מיון: לפי סטטוס</option>';
+      var sortOptionsHtmlCompact =
+        '<option value="name">לפי שם (א-ת)</option>' +
+        '<option value="newest">החדשים ביותר</option>' +
+        '<option value="status">לפי סטטוס</option>';
+      var catOptionsHtml = '<option value="">כל הקטגוריות</option>' +
+        cats.map(function(c){ return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
+      var statusOptionsHtml = '<option value="">כל הסטטוסים</option>' +
+        state.statuses.map(function(s){ return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('');
+
       content.innerHTML =
         '<div class="sec-title">' + opts.title + ' <span class="count-pill" id="count-pill">' + contacts.length + '</span></div>' +
         mineSummary +
-        '<div class="toolbar">' +
-          '<input id="f-q" placeholder="חיפוש שם / טלפון">' +
-          '<select id="f-sort">' +
-            '<option value="name">מיון: לפי שם (א-ת)</option>' +
-            '<option value="newest">מיון: החדשים ביותר</option>' +
-            '<option value="status">מיון: לפי סטטוס</option>' +
-          '</select>' +
-        '</div>' +
-        '<div class="toolbar">' +
-          '<select id="f-cat"><option value="">כל הקטגוריות</option>' +
-            cats.map(function(c){ return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') +
-          '</select>' +
-          '<select id="f-status"><option value="">כל הסטטוסים</option>' +
-            state.statuses.map(function(s){ return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('') +
-          '</select>' +
-        '</div>' +
-        (opts.scope === 'all' && state.me.isAdmin && assignAmbs ? (
+        (opts.scope === 'mine' ?
+          // מסך "שלי": שורת חיפוש עם מיון קטן לצידה, ומתחת שלוש קוביות סינון (קטגוריה, סטטוס, ולא נוצר קשר)
           '<div class="toolbar">' +
-            '<select id="f-amb"><option value="">כל השגרירים</option>' +
-              '<option value="none">ללא שיוך</option>' +
-              assignAmbs.map(function(a){ return '<option value="' + a.id + '">' + esc(a.name) + ' — ' + a.contactCount + ' אנשים</option>'; }).join('') +
-            '</select>' +
+            '<input id="f-q" placeholder="חיפוש שם / טלפון">' +
+            '<select id="f-sort" style="flex:0 0 auto;width:auto;min-width:0">' + sortOptionsHtmlCompact + '</select>' +
+          '</div>' +
+          '<div class="filter-tiles' + (cNoContact > 0 ? '' : ' filter-tiles-2') + '">' +
+            '<div class="filter-tile"><label>🏷️ קטגוריה</label><select id="f-cat">' + catOptionsHtml + '</select></div>' +
+            '<div class="filter-tile"><label>📍 סטטוס</label><select id="f-status">' + statusOptionsHtml + '</select></div>' +
+            (cNoContact > 0 ?
+              '<div class="filter-tile filter-tile-btn" id="f-nocontact-tile"><label>⏳ לא נוצר קשר</label><div class="filter-tile-count">' + cNoContact + '</div></div>'
+              : '') +
           '</div>'
-        ) : '') +
-        '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);margin-bottom:12px">' +
-          '<input type="checkbox" id="f-uncat"> להציג רק אנשי קשר ללא סיווג</label>' +
+          :
+          '<div class="toolbar">' +
+            '<input id="f-q" placeholder="חיפוש שם / טלפון">' +
+            '<select id="f-sort">' + sortOptionsHtml + '</select>' +
+          '</div>' +
+          '<div class="toolbar">' +
+            '<select id="f-cat">' + catOptionsHtml + '</select>' +
+            '<select id="f-status">' + statusOptionsHtml + '</select>' +
+          '</div>' +
+          (opts.scope === 'all' && state.me.isAdmin && assignAmbs ? (
+            '<div class="toolbar">' +
+              '<select id="f-amb"><option value="">כל השגרירים</option>' +
+                '<option value="none">ללא שיוך</option>' +
+                assignAmbs.map(function(a){ return '<option value="' + a.id + '">' + esc(a.name) + ' — ' + a.contactCount + ' אנשים</option>'; }).join('') +
+              '</select>' +
+            '</div>'
+          ) : '') +
+          '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);margin-bottom:12px">' +
+            '<input type="checkbox" id="f-uncat"> להציג רק אנשי קשר ללא סיווג</label>'
+        ) +
         '<div id="bulk-bar" class="toolbar" style="display:none;position:sticky;z-index:15;align-items:center;background:#eef1f5;border-radius:10px;padding:8px 10px;box-shadow:0 2px 6px rgba(15,23,42,.1)">' +
           '<span id="bulk-count" style="font-weight:700;font-size:12.5px;flex:0"></span>' +
           ((!state.me.isCampaignManager && (opts.scope === 'unassigned' || opts.scope === 'all')) ? '<button class="btn btn-gold btn-sm" id="bulk-claim" style="flex:0">✋ קח לרשימה שלי</button>' : '') +
@@ -636,7 +668,22 @@
         draw();
       };
 
+      function updateNoContactTile(){
+        var tile = content.querySelector('#f-nocontact-tile');
+        if (!tile) return;
+        var cnt = contacts.filter(function(c){ return !c.status; }).length;
+        if (!cnt){
+          filters.uncontacted = false;
+          var tiles = tile.parentNode;
+          tile.remove();
+          tiles.classList.add('filter-tiles-2');
+        } else {
+          tile.querySelector('.filter-tile-count').textContent = cnt;
+        }
+      }
+
       function draw(){
+        updateNoContactTile();
         var filtered = getFiltered();
         content.querySelector('#count-pill').textContent = filtered.length === contacts.length ? contacts.length : (filtered.length + '/' + contacts.length);
         updateBulkBar();
@@ -736,7 +783,12 @@
       content.querySelector('#f-cat').onchange = function(e){ filters.cat = e.target.value; draw(); };
       content.querySelector('#f-status').onchange = function(e){ filters.status = e.target.value; draw(); };
       if (content.querySelector('#f-amb')) content.querySelector('#f-amb').onchange = function(e){ filters.amb = e.target.value; draw(); };
-      content.querySelector('#f-uncat').onchange = function(e){ filters.uncategorized = e.target.checked; draw(); };
+      if (content.querySelector('#f-uncat')) content.querySelector('#f-uncat').onchange = function(e){ filters.uncategorized = e.target.checked; draw(); };
+      if (content.querySelector('#f-nocontact-tile')) content.querySelector('#f-nocontact-tile').onclick = function(){
+        filters.uncontacted = !filters.uncontacted;
+        this.classList.toggle('active', filters.uncontacted);
+        draw();
+      };
 
       draw();
     }).catch(function(e){
