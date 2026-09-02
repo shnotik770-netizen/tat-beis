@@ -196,8 +196,8 @@
     'לא יכול להגיע אבל רוצה לתרום': '#2563eb',
     'לא יכול להגיע לאירוע': '#dc2626'
   };
-  // מבחינת לוח הסטטיסטיקה "קיבל הזמנה רשמית" ו"שיחה ראשונית" נספרים יחד — אותו שלב מוקדם בתהליך
-  var STATS_MERGE_STATUS = { 'קיבל הזמנה רשמית': 'שיחה ראשונית' };
+  // מבחינת לוח הסטטיסטיקה "קיבל הזמנה רשמית" ו"בודק" נספרים יחד עם "שיחה ראשונית" — כולם שלבים מוקדמים בתהליך
+  var STATS_MERGE_STATUS = { 'קיבל הזמנה רשמית': 'שיחה ראשונית', 'בודק': 'שיחה ראשונית' };
 
   // כל קטגוריה מקבלת צבע קבוע לפי ה-id שלה, כדי שאותה קטגוריה תיראה תמיד באותו צבע בכל האתר
   var CATEGORY_PALETTE = [
@@ -1072,6 +1072,14 @@
     );
   }
 
+  // ממיר מספר טלפון ישראלי מקומי (05X-XXXXXXX) לפורמט הבינלאומי הנדרש ע"י wa.me (ללא + / מקפים / רווחים)
+  function phoneForWhatsapp(phone){
+    var digits = String(phone || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.charAt(0) === '0') return '972' + digits.slice(1);
+    return digits;
+  }
+
   function renderInviteOptions(contact){
     var link = window.location.origin + '/invite/' + contact.inviteToken;
     return (
@@ -1083,8 +1091,9 @@
       '<div id="invite-unsaved-warning" class="hint" style="display:none;color:var(--danger);font-weight:700;margin-bottom:8px">⚠️ יש שינויים שלא נשמרו — יש ללחוץ על "שמירת מידע מפורט"</div>' +
       '<button class="btn btn-outline btn-sm" id="sh-save-seating">💾 שמירת מידע מפורט</button>' +
       '<div class="field" style="margin-top:12px"><label>קישור הזמנה אישי</label><input id="invite-link" value="' + esc(link) + '" readonly style="font-size:12px"></div>' +
-      '<div style="display:flex;gap:8px">' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
         '<button class="btn btn-outline btn-sm" id="copy-link">📋 העתקת קישור</button>' +
+        '<button class="btn btn-gold btn-sm" id="whatsapp-link">💬 שליחה בוואטסאפ</button>' +
         '<button class="btn btn-outline btn-sm" id="preview-link">🔗 תצוגה מקדימה</button>' +
       '</div>' +
       '<div class="hint">המוזמן/ת יראה הזמנה עם השם לפנייה (או השם הרגיל אם לא הוגדר), שם בן/בת הזוג, מקום הישיבה (אם הוגדר), ואפשרות לאשר הגעה — כולל אם מגיע/ה לבד או עם בן/בת זוג.</div>'
@@ -1209,7 +1218,7 @@
       (contact.ambassador
         ? '<div class="hint">שגריר אחראי: ' + esc(contact.ambassador.name) +
           ((state.me.isAdmin || contact.ambassador.id === state.me.id)
-            ? ' · <a href="#" id="unassign-link" style="color:var(--danger);text-decoration:none">ביטול שיוך</a>' : '') +
+            ? ' · <a href="#" id="unassign-link" style="color:var(--danger);text-decoration:none;font-size:14px;font-weight:700;padding:4px 2px;display:inline-block">ביטול שיוך</a>' : '') +
           '</div>'
         : '<div class="hint">לא משויך לשגריר</div>') +
       '<div style="margin-top:8px">' + renderSelfSection(contact) + '</div>' +
@@ -1276,6 +1285,17 @@
         }).catch(function(e){ alert(e.message); });
       };
     }
+    // אחרי שליחת הקישור (העתקה או וואטסאפ) — הצעה לסמן שהוזמן/ה רשמית, אלא אם כבר מסומן כך
+    function maybeProposeInviteSentStatus(prefix){
+      // רק אם עדיין אין סטטוס או שהוא בשלב המוקדם ביותר — לא לדרוס סטטוס מתקדם יותר (אישר הגעה, לא יכול להגיע, בודק וכו')
+      var eligible = !contact.status || contact.status === 'שיחה ראשונית';
+      if (eligible && confirm(prefix + ' לסמן לאיש הקשר סטטוס "קיבל הזמנה רשמית"?')) {
+        api('/contacts/' + contact.id + '/status', {method:'POST', body: JSON.stringify({status:'קיבל הזמנה רשמית'})}).then(function(updated){
+          checkMilestones();
+          drawSheet(overlay, updated, history);
+        }).catch(function(e){ alert(e.message); });
+      }
+    }
     if (sheet.querySelector('#copy-link')) sheet.querySelector('#copy-link').onclick = function(){
       var greetEmpty = !sheet.querySelector('#e-greet').value.trim();
       if (greetEmpty && !confirm('לא הוזן שם לפנייה בהזמנה. מומלץ להזין שם מדוייק ולצפות בתצוגה מקדימה לפני השליחה.\n\nלהעתיק את הקישור בכל זאת?')) return;
@@ -1283,13 +1303,7 @@
       input.select();
       var done = function(){
         var b = sheet.querySelector('#copy-link'); var orig = b.textContent; b.textContent = '✔️ הועתק'; setTimeout(function(){ b.textContent = orig; }, 1500);
-        // אחרי העתקת הקישור לשליחה — הצעה לסמן שהוזמן/ה רשמית, אלא אם כבר מסומן כך
-        if (contact.status !== 'קיבל הזמנה רשמית' && confirm('הקישור הועתק. לסמן לאיש הקשר סטטוס "קיבל הזמנה רשמית"?')) {
-          api('/contacts/' + contact.id + '/status', {method:'POST', body: JSON.stringify({status:'קיבל הזמנה רשמית'})}).then(function(updated){
-            checkMilestones();
-            drawSheet(overlay, updated, history);
-          }).catch(function(e){ alert(e.message); });
-        }
+        maybeProposeInviteSentStatus('הקישור הועתק.');
       };
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(input.value).then(done).catch(function(){ document.execCommand('copy'); done(); });
@@ -1297,6 +1311,17 @@
         document.execCommand('copy');
         done();
       }
+    };
+    if (sheet.querySelector('#whatsapp-link')) sheet.querySelector('#whatsapp-link').onclick = function(){
+      var greetEmpty = !sheet.querySelector('#e-greet').value.trim();
+      if (greetEmpty && !confirm('לא הוזן שם לפנייה בהזמנה. מומלץ להזין שם מדוייק ולצפות בתצוגה מקדימה לפני השליחה.\n\nלשלוח בוואטסאפ בכל זאת?')) return;
+      var link = sheet.querySelector('#invite-link').value;
+      var greetName = sheet.querySelector('#e-greet').value.trim();
+      var eventName = (state.campaignSettings && state.campaignSettings.eventName) || 'ערב שותפות';
+      var text = 'שלום' + (greetName ? ' ' + greetName : '') + ',\nהוזמנת ל' + eventName + ' — לאישור הגעה ולפרטים:\n' + link;
+      var url = 'https://wa.me/' + phoneForWhatsapp(contact.phone) + '?text=' + encodeURIComponent(text);
+      window.open(url, '_blank');
+      maybeProposeInviteSentStatus('נפתח וואטסאפ לשליחה.');
     };
     if (sheet.querySelector('#preview-link')) sheet.querySelector('#preview-link').onclick = function(){
       openInvitePreview(sheet.querySelector('#invite-link').value);
