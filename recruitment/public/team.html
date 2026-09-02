@@ -179,6 +179,7 @@
   var API = '/api';
   var STATUS_COLORS = {
     'שיחה ראשונית': '#64748b',
+    'קיבל הזמנה רשמית': '#0ea5e9',
     'בודק': '#d97706',
     'מגיע לאירוע': '#16a34a',
     'לא יכול להגיע אבל רוצה לתרום': '#2563eb',
@@ -1136,9 +1137,11 @@
         '<button class="btn btn-outline btn-sm" id="disc-send">שליחה</button>' +
       '</div>' +
 
-      '<hr class="divider">' +
-      '<div class="sec-title" style="margin-bottom:8px">🌟 האם מתאים/ה להיות שגריר/ה?</div>' +
-      renderCandidateSection(contact) +
+      (state.me.isAdmin ?
+        '<hr class="divider">' +
+        '<div class="sec-title" style="margin-bottom:8px">🌟 האם מתאים/ה להיות שגריר/ה?</div>' +
+        renderCandidateSection(contact)
+        : '') +
 
       '<hr class="divider">' +
       '<div class="sec-title" style="margin-bottom:8px">עדכון סטטוס</div>' +
@@ -1224,7 +1227,16 @@
       if (greetEmpty && !confirm('לא הוזן שם לפנייה בהזמנה. מומלץ להזין שם מדוייק ולצפות בתצוגה מקדימה לפני השליחה.\n\nלהעתיק את הקישור בכל זאת?')) return;
       var input = sheet.querySelector('#invite-link');
       input.select();
-      var done = function(){ var b = sheet.querySelector('#copy-link'); var orig = b.textContent; b.textContent = '✔️ הועתק'; setTimeout(function(){ b.textContent = orig; }, 1500); };
+      var done = function(){
+        var b = sheet.querySelector('#copy-link'); var orig = b.textContent; b.textContent = '✔️ הועתק'; setTimeout(function(){ b.textContent = orig; }, 1500);
+        // אחרי העתקת הקישור לשליחה — הצעה לסמן שהוזמן/ה רשמית, אלא אם כבר מסומן כך
+        if (contact.status !== 'קיבל הזמנה רשמית' && confirm('הקישור הועתק. לסמן לאיש הקשר סטטוס "קיבל הזמנה רשמית"?')) {
+          api('/contacts/' + contact.id + '/status', {method:'POST', body: JSON.stringify({status:'קיבל הזמנה רשמית'})}).then(function(updated){
+            checkMilestones();
+            drawSheet(overlay, updated, history);
+          }).catch(function(e){ alert(e.message); });
+        }
+      };
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(input.value).then(done).catch(function(){ document.execCommand('copy'); done(); });
       } else {
