@@ -711,6 +711,19 @@ router.delete('/campaign-settings/hero', requireCampaignManager, ah(async (req, 
   res.json({ ok: true });
 }));
 
+// סיכום כללי של כל אנשי הקשר במערכת (לא מוגבל לשיוך לשגריר) — לשלוש הקוביות בראש לשונית הסטטיסטיקה
+router.get('/stats/overview', requireAuth, ah(async (req, res) => {
+  const { rows } = await pool.query(`
+    SELECT
+      COUNT(*) FILTER (WHERE status IS NOT NULL)::int AS contacted,
+      COUNT(*) FILTER (WHERE status = 'מגיע לאירוע')::int AS confirmed,
+      COUNT(*) FILTER (WHERE status IS NULL)::int AS not_contacted
+    FROM contacts
+  `);
+  const r = rows[0];
+  res.json({ contacted: r.contacted, confirmed: r.confirmed, notContacted: r.not_contacted });
+}));
+
 // --- סטטיסטיקה ולוח מובילים (פתוח לכל שגריר, לא רק למנהל — כדי לעודד ולהראות התקדמות) ---
 router.get('/stats/ambassadors', requireAuth, ah(async (req, res) => {
   const { rows: ambs } = await pool.query('SELECT id, name FROM ambassadors WHERE hidden = FALSE ORDER BY name');
