@@ -50,23 +50,16 @@
   .err{background:#fef2f2;color:var(--danger);border:1px solid #fecaca;border-radius:10px;padding:12px;font-size:13.5px}
   .spinner{padding:60px 0;text-align:center;color:var(--muted);font-size:13.5px}
   .footer-note{font-size:11.5px;color:var(--muted);margin-top:22px;text-align:center}
-  .hero-wrap{max-width:480px;margin:0 auto;padding:18px 18px 0}
-  .hero-img{width:100%;border-radius:var(--radius);box-shadow:var(--shadow);display:block}
+  .hero-img{width:100%;border-radius:var(--radius);box-shadow:var(--shadow);display:block;margin-bottom:14px}
   .hero-details{background:linear-gradient(135deg,var(--navy),var(--navy-2));color:#fff;border-radius:var(--radius);
-    margin-top:10px;padding:14px 18px;text-align:center;box-shadow:var(--shadow)}
+    width:100%;padding:14px 18px;text-align:center;box-shadow:var(--shadow);margin:14px 0}
   .hero-tagline{font-size:14px;font-weight:700;color:var(--gold-light);margin-bottom:6px}
   .hero-meta{font-size:13px;opacity:.92;line-height:1.6}
+  .jump-link{display:block;text-align:center;font-size:12.5px;color:var(--muted);text-decoration:underline;
+    margin-bottom:14px}
 </style>
 </head>
 <body>
-<div class="hero-wrap">
-  <img src="/assets/save-the-date.jpg" alt="Save the Date" class="hero-img">
-  <div class="hero-details">
-    <div class="hero-tagline" id="ev-tagline">הזמן שלנו להתאחד, לצמוח ולפרוץ קדימה</div>
-    <div class="hero-meta" id="ev-date">יום שלישי · כ"ו אלול · 8.9 · בשעה 20:30</div>
-    <div class="hero-meta" id="ev-location">אולמי האושר, עפולה</div>
-  </div>
-</div>
 <div id="app"><div class="spinner">טוען הזמנה…</div></div>
 
 <script>
@@ -77,7 +70,10 @@
   var EVENT = {
     brandText: 'ערב שותפות · בית ספר חב"ד עפולה',
     messageText: 'הרינו מתכבדים להזמינך לערב שותפות מיוחד למען מוסדות חב"ד עפולה.\nנשמח לראותך ולשתף אותך בהמשך הדרך.',
-    footerText: 'תודה שאתם חלק ממשפחת חב"ד עפולה 💛'
+    footerText: 'תודה שאתם חלק ממשפחת חב"ד עפולה 💛',
+    tagline: 'הזמן שלנו להתאחד, לצמוח ולפרוץ קדימה',
+    dateText: 'יום שלישי · כ"ו אלול · 8.9 · בשעה 20:30',
+    location: 'אולמי האושר, עפולה'
   };
 
   function esc(s){
@@ -108,6 +104,22 @@
     return '<div class="guest-name-companion">ו' + esc(invite.companionName) + '</div>';
   }
 
+  function heroDetailsHtml(){
+    return '<div class="hero-details">' +
+      '<div class="hero-tagline">' + esc(EVENT.tagline) + '</div>' +
+      '<div class="hero-meta">' + esc(EVENT.dateText) + '</div>' +
+      '<div class="hero-meta">' + esc(EVENT.location) + '</div>' +
+    '</div>';
+  }
+
+  function heroImageHtml(){
+    return '<img src="/assets/save-the-date.jpg" alt="Save the Date" class="hero-img">';
+  }
+
+  function jumpLinkHtml(){
+    return '<a href="#rsvp-block" class="jump-link">אישור הגעה ⬇</a>';
+  }
+
   function seatBox(invite){
     if (!invite.seatNumber && !invite.companionSeatNumber) return '';
     var tiles = '';
@@ -132,7 +144,11 @@
         '<div class="to-label">לכבוד</div>' +
         '<div class="guest-name">' + esc(invite.greetingName || invite.name) + '</div>' +
         companionNameLine(invite) +
-        '<hr class="divider">' +
+      '</div>' +
+      heroDetailsHtml() +
+      jumpLinkHtml() +
+      heroImageHtml() +
+      '<div class="card" id="rsvp-block">' +
         '<span class="status-pill ' + pillClass + '">' + esc(invite.status) + '</span>' +
         companionLine +
         seatBox(invite) +
@@ -152,6 +168,11 @@
         '<div class="to-label">לכבוד</div>' +
         '<div class="guest-name">' + esc(invite.greetingName || invite.name) + '</div>' +
         companionNameLine(invite) +
+      '</div>' +
+      heroDetailsHtml() +
+      jumpLinkHtml() +
+      heroImageHtml() +
+      '<div class="card" id="rsvp-block">' +
         '<div class="invite-text">' + nl2br(EVENT.messageText) + '</div>' +
         seatBox(invite) +
         '<hr class="divider">' +
@@ -202,10 +223,9 @@
       if (s.inviteBrandText) EVENT.brandText = s.inviteBrandText;
       if (s.inviteMessageText) EVENT.messageText = s.inviteMessageText;
       if (s.inviteFooterText) EVENT.footerText = s.inviteFooterText;
-      function set(id, v){ if (v) document.getElementById(id).textContent = v; }
-      set('ev-tagline', s.eventTagline);
-      set('ev-date', s.eventDateText);
-      set('ev-location', s.eventLocation);
+      if (s.eventTagline) EVENT.tagline = s.eventTagline;
+      if (s.eventDateText) EVENT.dateText = s.eventDateText;
+      if (s.eventLocation) EVENT.location = s.eventLocation;
     }).catch(function(){});
   }
 
