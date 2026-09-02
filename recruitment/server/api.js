@@ -42,19 +42,32 @@ router.get('/statuses', (req, res) => res.json(STATUSES));
 
 // --- categories ---
 router.get('/categories', requireAuth, ah(async (req, res) => {
-  const { rows } = await pool.query('SELECT id, name FROM categories ORDER BY name');
+  const { rows } = await pool.query('SELECT id, name, is_official AS "isOfficial" FROM categories ORDER BY name');
   res.json(rows);
 }));
 
+// יצירת קטגוריה — פתוח לכל שגריר (סיווג חופשי), אבל רק מנהל קמפיין יכול לסמן אותה כ"רשמית"
 router.post('/categories', requireAuth, ah(async (req, res) => {
-  const { name } = req.body || {};
+  const { name, isOfficial } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'יש להזין שם קטגוריה' });
+  const official = !!isOfficial && !!req.ambassador.is_campaign_manager;
   const { rows } = await pool.query(
-    `INSERT INTO categories (name) VALUES ($1)
-     ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-     RETURNING id, name`,
-    [name.trim()]
+    `INSERT INTO categories (name, is_official) VALUES ($1, $2)
+     ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name, is_official = categories.is_official OR EXCLUDED.is_official
+     RETURNING id, name, is_official AS "isOfficial"`,
+    [name.trim(), official]
   );
+  res.json(rows[0]);
+}));
+
+// שינוי סטטוס "רשמי" של קטגוריה קיימת — למנהל קמפיין בלבד
+router.patch('/categories/:id', requireCampaignManager, ah(async (req, res) => {
+  const { isOfficial } = req.body || {};
+  const { rows } = await pool.query(
+    'UPDATE categories SET is_official = $1 WHERE id = $2 RETURNING id, name, is_official AS "isOfficial"',
+    [!!isOfficial, req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'קטגוריה לא נמצאה' });
   res.json(rows[0]);
 }));
 

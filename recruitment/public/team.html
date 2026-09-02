@@ -523,7 +523,7 @@
       var cats = uniqueCats(contacts);
       var mineSummary = '';
       if (opts.scope === 'mine'){
-        var cInitial = contacts.filter(function(c){ return c.status === 'שיחה ראשונית'; }).length;
+        var cInitial = contacts.filter(function(c){ return c.status === 'שיחה ראשונית' || STATS_MERGE_STATUS[c.status] === 'שיחה ראשונית'; }).length;
         var cArriving = contacts.filter(function(c){ return c.status === 'מגיע לאירוע'; }).length;
         var cNoContact = contacts.filter(function(c){ return !c.status; }).length;
         mineSummary = '<div class="mine-summary">' +
@@ -1161,8 +1161,8 @@
 
   function drawSheet(overlay, contact, history){
     var sheet = overlay.querySelector('.sheet');
-    var catList = state.categories.map(function(c){ return '<option value="' + esc(c.name) + '">'; }).join('');
     var cats = contact.categories || [];
+    var officialCats = state.categories.filter(function(c){ return c.isOfficial; });
 
     sheet.innerHTML =
       '<div class="sheet-head"><h3>' + esc(contact.name) + '</h3><button class="close-x" id="sh-close">✕</button></div>' +
@@ -1186,11 +1186,20 @@
           return '<span class="badge-cat" style="background:' + col.bg + ';color:' + col.fg + '">' + esc(cat.name) + ' <a href="#" data-rmcat="' + cat.id + '" style="color:inherit;opacity:.6;text-decoration:none;margin-inline-start:4px">✕</a></span>';
         }).join('') : '<span class="hint">אין עדיין סיווג</span>') +
       '</div>' +
+      (officialCats.length ?
+        '<div class="hint" style="margin-bottom:6px">סיווגים קבועים — לחיצה מוסיפה/מסירה</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">' +
+          officialCats.map(function(oc){
+            var active = cats.some(function(c){ return c.id === oc.id; });
+            return '<button type="button" class="btn btn-sm ' + (active ? 'btn-gold' : 'btn-outline') + '" data-toggle-official="' + oc.id + '" data-official-name="' + esc(oc.name) + '" style="width:auto">' + (active ? '✓ ' : '') + esc(oc.name) + '</button>';
+          }).join('') +
+        '</div>'
+        : '') +
+      '<div class="hint" style="margin-bottom:6px">סיווג אחר (חופשי)</div>' +
       '<div style="display:flex;gap:8px;margin-bottom:16px">' +
-        '<input id="cat-add-input" list="cat-dl" placeholder="הוספת סיווג…" style="flex:1;padding:9px 10px;border:1.5px solid var(--border);border-radius:9px;background:#fbfbfc">' +
+        '<input id="cat-add-input" placeholder="הוספת סיווג…" style="flex:1;padding:9px 10px;border:1.5px solid var(--border);border-radius:9px;background:#fbfbfc">' +
         '<button class="btn btn-outline btn-sm" id="cat-add-btn">הוספה</button>' +
       '</div>' +
-      '<datalist id="cat-dl">' + catList + '</datalist>' +
 
       '<hr class="divider">' +
       '<div class="sec-title" style="margin-bottom:8px">💬 שיח פנימי — מי מכיר את זה?</div>' +
@@ -1337,6 +1346,15 @@
         ev.preventDefault();
         var id = a.getAttribute('data-rmcat');
         submitCategories(cats.filter(function(c){ return String(c.id) !== id; }).map(function(c){ return c.name; }));
+      };
+    });
+    Array.prototype.forEach.call(sheet.querySelectorAll('[data-toggle-official]'), function(btn){
+      btn.onclick = function(){
+        var name = btn.getAttribute('data-official-name');
+        var names = cats.map(function(c){ return c.name; });
+        var idx = names.indexOf(name);
+        if (idx > -1) names.splice(idx, 1); else names.push(name);
+        submitCategories(names);
       };
     });
     sheet.querySelector('#cat-add-btn').onclick = function(){
@@ -1612,7 +1630,7 @@
   // ===================== ADD CONTACT =====================
   // הוספת איש קשר — חלון צף (כפתור + למטה), פתוח מכל מסך, במקום לשונית נפרדת
   function openAddContactSheet(){
-    var catList = state.categories.map(function(c){ return '<option value="' + esc(c.name) + '">'; }).join('');
+    var officialCats = state.categories.filter(function(c){ return c.isOfficial; });
     var overlay = document.createElement('div');
     overlay.className = 'overlay';
     overlay.innerHTML = '<div class="sheet"></div>';
@@ -1624,8 +1642,12 @@
       '<div class="sheet-head"><h3>➕ הוספת איש קשר חדש</h3><button class="close-x" id="a-close">✕</button></div>' +
       '<div class="field"><label>שם מלא *</label><input id="a-name"></div>' +
       '<div class="field"><label>טלפון</label><input id="a-phone" type="tel"></div>' +
-      '<div class="field"><label>סיווג (אפשר כמה, מופרד בפסיק)</label><input id="a-cat" list="cat-dl2" placeholder="לדוגמה: קהילה, הורה בית ספר"></div>' +
-      '<datalist id="cat-dl2">' + catList + '</datalist>' +
+      (officialCats.length ?
+        '<div class="field"><label>סיווגים קבועים</label><div style="display:flex;gap:8px;flex-wrap:wrap">' +
+          officialCats.map(function(oc){ return '<button type="button" class="btn btn-outline btn-sm" data-a-official="' + esc(oc.name) + '" style="width:auto">' + esc(oc.name) + '</button>'; }).join('') +
+        '</div></div>'
+        : '') +
+      '<div class="field"><label>סיווג אחר (אפשר כמה, מופרד בפסיק)</label><input id="a-cat" placeholder="לדוגמה: הורה בית ספר"></div>' +
       '<div class="field"><label>הערות</label><textarea id="a-notes"></textarea></div>' +
       (state.me.isAdmin ? '<div class="field" id="a-amb-wrap"><label>שיוך לשגריר</label><select id="a-amb"><option value="">אני (' + esc(state.me.name) + ')</option><option value="none">ללא שיוך — לרשימה הכללית</option></select></div>' : '') +
       '<div id="a-msg"></div>' +
@@ -1633,6 +1655,13 @@
       '<div class="hint">איש קשר חדש שתוסיפו ישויך אוטומטית אליכם, אלא אם תבחרו אחרת.</div>';
 
     sheet.querySelector('#a-close').onclick = function(){ overlay.remove(); };
+
+    Array.prototype.forEach.call(sheet.querySelectorAll('[data-a-official]'), function(btn){
+      btn.onclick = function(){
+        btn.classList.toggle('btn-gold');
+        btn.classList.toggle('btn-outline');
+      };
+    });
 
     if (state.me.isAdmin){
       api('/ambassadors').then(function(ambs){
@@ -1650,10 +1679,16 @@
       var name = sheet.querySelector('#a-name').value.trim();
       var msg = sheet.querySelector('#a-msg');
       if (!name){ msg.innerHTML = '<div class="err">יש להזין שם</div>'; return; }
+      var selectedOfficial = Array.prototype.map.call(
+        sheet.querySelectorAll('[data-a-official].btn-gold'),
+        function(btn){ return btn.getAttribute('data-a-official'); }
+      );
+      var freeCats = sheet.querySelector('#a-cat').value.trim();
+      var allCats = selectedOfficial.concat(freeCats ? freeCats.split(',').map(function(s){ return s.trim(); }).filter(Boolean) : []);
       var payload = {
         name: name,
         phone: sheet.querySelector('#a-phone').value.trim(),
-        categories: sheet.querySelector('#a-cat').value.trim(),
+        categories: allCats.join(', '),
         notes: sheet.querySelector('#a-notes').value.trim()
       };
       if (state.me.isAdmin){
@@ -2052,9 +2087,14 @@
   }
 
   function renderAdminCategories(body){
+    var isCM = state.me.isCampaignManager;
     body.innerHTML =
-      '<div class="field"><label>קטגוריה חדשה</label><div style="display:flex;gap:8px">' +
-      '<input id="nc-name" style="flex:1"><button class="btn btn-gold btn-sm" id="nc-add">הוספה</button></div></div>' +
+      '<div class="field"><label>קטגוריה חדשה</label><div style="display:flex;gap:8px;align-items:center">' +
+      '<input id="nc-name" style="flex:1">' +
+      (isCM ? '<label style="display:flex;align-items:center;gap:4px;font-size:12.5px;white-space:nowrap"><input type="checkbox" id="nc-official"> ⭐ רשמי</label>' : '') +
+      '<button class="btn btn-gold btn-sm" id="nc-add">הוספה</button></div>' +
+      (isCM ? '<div class="hint" style="margin-top:4px">קטגוריות "רשמיות" מוצגות ככפתורי בחירה מהירה בכרטיס הפרטים — הן הרשימה הסגורה שאתה קובע. כל סיווג אחר שמישהו מקליד נשאר סיווג חופשי, בלי שיוצע לאחרים ברשימה נפתחת.</div>' : '') +
+      '</div>' +
       '<div id="nc-list"><div class="spinner">טוען…</div></div>';
 
     function reload(){
@@ -2064,11 +2104,21 @@
         if (!cats.length){ list.innerHTML = '<div class="hint">אין עדיין קטגוריות.</div>'; return; }
         list.innerHTML = cats.map(function(c){
           return '<div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px">' +
-            '<span>' + esc(c.name) + '</span><button class="link-btn danger" data-delc="' + c.id + '">מחיקה</button></div>';
+            '<span>' + (c.isOfficial ? '⭐ ' : '') + esc(c.name) + '</span>' +
+            '<div style="display:flex;gap:12px;align-items:center">' +
+              (isCM ? '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)"><input type="checkbox" data-official="' + c.id + '" ' + (c.isOfficial ? 'checked' : '') + '> רשמי</label>' : '') +
+              '<button class="link-btn danger" data-delc="' + c.id + '">מחיקה</button>' +
+            '</div></div>';
         }).join('');
         Array.prototype.forEach.call(list.querySelectorAll('[data-delc]'), function(btn){
           btn.onclick = function(){
             api('/categories/' + btn.getAttribute('data-delc'), {method:'DELETE'}).then(reload).catch(function(e){ alert(e.message); });
+          };
+        });
+        Array.prototype.forEach.call(list.querySelectorAll('[data-official]'), function(cb){
+          cb.onchange = function(){
+            api('/categories/' + cb.getAttribute('data-official'), {method:'PATCH', body: JSON.stringify({isOfficial: cb.checked})})
+              .then(reload).catch(function(e){ alert(e.message); });
           };
         });
       });
@@ -2076,8 +2126,11 @@
     body.querySelector('#nc-add').onclick = function(){
       var v = body.querySelector('#nc-name').value.trim();
       if (!v) return;
-      api('/categories', {method:'POST', body: JSON.stringify({name:v})}).then(function(){
+      var payload = {name: v};
+      if (isCM) payload.isOfficial = body.querySelector('#nc-official').checked;
+      api('/categories', {method:'POST', body: JSON.stringify(payload)}).then(function(){
         body.querySelector('#nc-name').value = '';
+        if (isCM) body.querySelector('#nc-official').checked = false;
         reload();
       }).catch(function(e){ alert(e.message); });
     };

@@ -64,9 +64,12 @@ CREATE TABLE IF NOT EXISTS campaign_settings (
 );
 INSERT INTO campaign_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
+-- "רשמי" = סיווג קבוע שמנהל הקמפיין קבע — מוצג ככפתור מהיר בכרטיס הפרטים. סיווג לא-רשמי
+-- (שנוצר אוטומטית כשמישהו מקליד סיווג חופשי חדש) לא מופיע שם, רק בתוצאת הקלדה חופשית.
 CREATE TABLE IF NOT EXISTS categories (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
+  is_official BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -155,6 +158,7 @@ ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_chart_registered_en
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_chart_effort_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_timeline_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_leaderboard_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_official BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- מעבר ממבנה קודם: עמודת motivational_quotes יחידה (שדרוג קצר-חיים) -> quotes_general, ומחיקתה
 DO $$
