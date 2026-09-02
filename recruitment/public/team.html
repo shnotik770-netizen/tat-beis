@@ -185,6 +185,8 @@
     'לא יכול להגיע אבל רוצה לתרום': '#2563eb',
     'לא יכול להגיע לאירוע': '#dc2626'
   };
+  // מבחינת לוח הסטטיסטיקה "קיבל הזמנה רשמית" ו"שיחה ראשונית" נספרים יחד — אותו שלב מוקדם בתהליך
+  var STATS_MERGE_STATUS = { 'קיבל הזמנה רשמית': 'שיחה ראשונית' };
 
   // כל קטגוריה מקבלת צבע קבוע לפי ה-id שלה, כדי שאותה קטגוריה תיראה תמיד באותו צבע בכל האתר
   var CATEGORY_PALETTE = [
@@ -1513,8 +1515,9 @@
         (sectionOn('statsLeaderboardEnabled') ?
           '<div class="sec-title" style="margin-top:18px">לוח שגרירים מלא</div>' +
           (leaderboard.length ? leaderboard.map(function(a){
-            var badges = state.statuses.map(function(s){
+            var badges = state.statuses.filter(function(s){ return !STATS_MERGE_STATUS[s]; }).map(function(s){
               var cnt = a.byStatus[s] || 0;
+              state.statuses.forEach(function(other){ if (STATS_MERGE_STATUS[other] === s) cnt += (a.byStatus[other] || 0); });
               return cnt ? '<span class="badge-status" style="background:' + (STATUS_COLORS[s] || '#888') + '">' + esc(s) + ': ' + cnt + '</span>' : '';
             }).join('');
             var noneCnt = a.byStatus['טרם נקבע סטטוס'] || 0;
