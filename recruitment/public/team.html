@@ -1461,45 +1461,57 @@
       var quotes = pickRandom(motivationalQuotes('general'), 2);
       var top = arriving[0];
 
+      function sectionOn(key){
+        var cs = state.campaignSettings;
+        return !cs || cs[key] !== false;
+      }
+
       content.innerHTML =
         '<div class="sec-title">סטטיסטיקה ולוח מובילים</div>' +
 
-        '<div class="stat-tiles">' +
-          '<div class="stat-tile"><div class="stat-num" style="color:var(--info)">' + overview.contacted + '</div><div class="stat-label">פנינו אליהם בסך הכל</div></div>' +
-          '<div class="stat-tile"><div class="stat-num" style="color:var(--success)">' + overview.confirmed + '</div><div class="stat-label">אישרו הגעה</div></div>' +
-          '<div class="stat-tile"><div class="stat-num" style="color:var(--warn)">' + overview.notContacted + '</div><div class="stat-label">עוד לא פנינו אליהם</div></div>' +
-        '</div>' +
+        (sectionOn('statsTilesEnabled') ?
+          '<div class="stat-tiles">' +
+            '<div class="stat-tile"><div class="stat-num" style="color:var(--info)">' + overview.contacted + '</div><div class="stat-label">פנינו אליהם בסך הכל</div></div>' +
+            '<div class="stat-tile"><div class="stat-num" style="color:var(--success)">' + overview.confirmed + '</div><div class="stat-label">אישרו הגעה</div></div>' +
+            '<div class="stat-tile"><div class="stat-num" style="color:var(--warn)">' + overview.notContacted + '</div><div class="stat-label">עוד לא פנינו אליהם</div></div>' +
+          '</div>' : '') +
 
-        '<div class="card" style="background:linear-gradient(135deg,#fff7e6,#fff)">' +
-          (top ? '<div style="font-weight:800;color:var(--navy);margin-bottom:6px">🎉 ' + esc(top.label) + ' מוביל/ה עם ' + top.value + ' אנשים שהגיעו לסטטוס "מגיע לאירוע"!</div>' : '') +
-          quotes.map(function(q){ return '<div class="hint" style="font-size:12.5px;margin-bottom:4px">💛 ' + esc(q) + '</div>'; }).join('') +
-        '</div>' +
+        (sectionOn('statsLeaderEnabled') ?
+          '<div class="card" style="background:linear-gradient(135deg,#fff7e6,#fff)">' +
+            (top ? '<div style="font-weight:800;color:var(--navy);margin-bottom:6px">🎉 ' + esc(top.label) + ' מוביל/ה עם ' + top.value + ' אנשים שהגיעו לסטטוס "מגיע לאירוע"!</div>' : '') +
+            quotes.map(function(q){ return '<div class="hint" style="font-size:12.5px;margin-bottom:4px">💛 ' + esc(q) + '</div>'; }).join('') +
+          '</div>' : '') +
 
-        '<div class="sec-title" style="margin-top:18px">מי הביא הכי הרבה אנשים ל"מגיע לאירוע"</div>' +
-        renderBarChart(arriving, 'var(--gold)') +
+        (sectionOn('statsChartArrivingEnabled') ?
+          '<div class="sec-title" style="margin-top:18px">מי הביא הכי הרבה אנשים ל"מגיע לאירוע"</div>' +
+          renderBarChart(arriving, 'var(--gold)') : '') +
 
-        '<div class="sec-title" style="margin-top:18px">מי שייך הכי הרבה אנשי קשר אליו/ה</div>' +
-        renderBarChart(registered, 'var(--info)') +
+        (sectionOn('statsChartRegisteredEnabled') ?
+          '<div class="sec-title" style="margin-top:18px">מי שייך הכי הרבה אנשי קשר אליו/ה</div>' +
+          renderBarChart(registered, 'var(--info)') : '') +
 
-        '<div class="sec-title" style="margin-top:18px">מי הכי משקיע (מספר עדכוני סטטוס)</div>' +
-        renderBarChart(effort, 'var(--navy)') +
+        (sectionOn('statsChartEffortEnabled') ?
+          '<div class="sec-title" style="margin-top:18px">מי הכי משקיע (מספר עדכוני סטטוס)</div>' +
+          renderBarChart(effort, 'var(--navy)') : '') +
 
-        '<div class="sec-title" style="margin-top:18px">קצב ההתקדמות של כולם (הגעות מצטברות לאורך זמן)</div>' +
-        '<div class="card">' + renderTimelineSvg(timeline) + '</div>' +
+        (sectionOn('statsTimelineEnabled') ?
+          '<div class="sec-title" style="margin-top:18px">קצב ההתקדמות של כולם (הגעות מצטברות לאורך זמן)</div>' +
+          '<div class="card">' + renderTimelineSvg(timeline) + '</div>' : '') +
 
-        '<div class="sec-title" style="margin-top:18px">לוח שגרירים מלא</div>' +
-        (leaderboard.length ? leaderboard.map(function(a){
-          var badges = state.statuses.map(function(s){
-            var cnt = a.byStatus[s] || 0;
-            return cnt ? '<span class="badge-status" style="background:' + (STATUS_COLORS[s] || '#888') + '">' + esc(s) + ': ' + cnt + '</span>' : '';
-          }).join('');
-          var noneCnt = a.byStatus['טרם נקבע סטטוס'] || 0;
-          return '<div class="card">' +
-            '<div class="card-name">' + esc(a.name) + '</div>' +
-            '<div class="hint">סה"כ אחראי/ת על ' + a.total + ' אנשים · ' + a.updatesCount + ' עדכוני סטטוס</div>' +
-            '<div class="badges">' + badges + (noneCnt ? '<span class="badge-cat">טרם נקבע סטטוס: ' + noneCnt + '</span>' : '') + '</div>' +
-          '</div>';
-        }).join('') : '<div class="empty">אין עדיין שגרירים עם אנשים ברשימה.</div>');
+        (sectionOn('statsLeaderboardEnabled') ?
+          '<div class="sec-title" style="margin-top:18px">לוח שגרירים מלא</div>' +
+          (leaderboard.length ? leaderboard.map(function(a){
+            var badges = state.statuses.map(function(s){
+              var cnt = a.byStatus[s] || 0;
+              return cnt ? '<span class="badge-status" style="background:' + (STATUS_COLORS[s] || '#888') + '">' + esc(s) + ': ' + cnt + '</span>' : '';
+            }).join('');
+            var noneCnt = a.byStatus['טרם נקבע סטטוס'] || 0;
+            return '<div class="card">' +
+              '<div class="card-name">' + esc(a.name) + '</div>' +
+              '<div class="hint">סה"כ אחראי/ת על ' + a.total + ' אנשים · ' + a.updatesCount + ' עדכוני סטטוס</div>' +
+              '<div class="badges">' + badges + (noneCnt ? '<span class="badge-cat">טרם נקבע סטטוס: ' + noneCnt + '</span>' : '') + '</div>' +
+            '</div>';
+          }).join('') : '<div class="empty">אין עדיין שגרירים עם אנשים ברשימה.</div>') : '');
     }).catch(function(e){
       content.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
     });
@@ -1666,6 +1678,22 @@
           '<input type="checkbox" id="cs-seating" ' + (s.seatingEnabled ? 'checked' : '') + '> מקומות ישיבה פעילים (בכרטיס איש הקשר)</label>' +
 
         '<hr class="divider">' +
+        '<div class="sec-title">מה מוצג בלשונית הסטטיסטיקה</div>' +
+        '<div class="hint" style="margin-bottom:10px">כל ריבוע/גרף אפשר להציג או להסתיר בנפרד.</div>' +
+        [
+          ['cs-stats-tiles', 'statsTilesEnabled', 'שלוש קוביות הסיכום (פנינו/אישרו/עוד לא)'],
+          ['cs-stats-leader', 'statsLeaderEnabled', 'כרטיס המוביל/ה ומשפטי עידוד'],
+          ['cs-stats-arriving', 'statsChartArrivingEnabled', 'גרף "מי הביא הכי הרבה אנשים למגיע לאירוע"'],
+          ['cs-stats-registered', 'statsChartRegisteredEnabled', 'גרף "מי שייך הכי הרבה אנשי קשר אליו/ה"'],
+          ['cs-stats-effort', 'statsChartEffortEnabled', 'גרף "מי הכי משקיע"'],
+          ['cs-stats-timeline', 'statsTimelineEnabled', 'ציר הזמן של קצב ההתקדמות'],
+          ['cs-stats-leaderboard', 'statsLeaderboardEnabled', 'לוח השגרירים המלא']
+        ].map(function(f){
+          return '<label style="display:flex;align-items:center;gap:6px;font-size:13.5px;margin-bottom:8px">' +
+            '<input type="checkbox" id="' + f[0] + '" ' + (s[f[1]] !== false ? 'checked' : '') + '> ' + f[2] + '</label>';
+        }).join('') +
+
+        '<hr class="divider">' +
         '<div class="sec-title">כניסה למערכת</div>' +
         '<div class="field"><label>מצב כניסה</label><select id="cs-login">' +
           '<option value="none" ' + (s.loginMode==='none'?'selected':'') + '>ללא סיסמה לשגרירים (ברירת מחדל — רק למנהלים יש קוד)</option>' +
@@ -1758,7 +1786,14 @@
           inviteFooterText: body.querySelector('#cs-inv-footer').value.trim(),
           quotesGeneral: quotesGeneral,
           quotesPartners: quotesPartners,
-          quotesParticipants: quotesParticipants
+          quotesParticipants: quotesParticipants,
+          statsTilesEnabled: body.querySelector('#cs-stats-tiles').checked,
+          statsLeaderEnabled: body.querySelector('#cs-stats-leader').checked,
+          statsChartArrivingEnabled: body.querySelector('#cs-stats-arriving').checked,
+          statsChartRegisteredEnabled: body.querySelector('#cs-stats-registered').checked,
+          statsChartEffortEnabled: body.querySelector('#cs-stats-effort').checked,
+          statsTimelineEnabled: body.querySelector('#cs-stats-timeline').checked,
+          statsLeaderboardEnabled: body.querySelector('#cs-stats-leaderboard').checked
         };
         if (sharedPin) payload.sharedPin = sharedPin;
         api('/campaign-settings', {method:'PATCH', body: JSON.stringify(payload)}).then(function(){

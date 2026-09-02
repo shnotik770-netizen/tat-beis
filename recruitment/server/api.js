@@ -393,6 +393,7 @@ router.post('/contacts/bulk-delete', requireAuth, ah(async (req, res) => {
 
 // סימון "זה אני": כל שגריר יכול לסמן איש קשר אחד בלבד ברשימה כמייצג אותו עצמו
 // (למשל אם הוא הופיע ברשימה המקורית לפני שהצטרף כשגריר). מוסר אוטומטית מכל איש קשר אחר שסימן קודם.
+// סימון "זה אני" משייך את איש הקשר אוטומטית לשגריר המסמן (כמו עדכון סטטוס על איש קשר לא-משויך) — הוא כבר "שלו" מטבעו.
 router.post('/contacts/:id/self', requireAuth, ah(async (req, res) => {
   const { self } = req.body || {};
   const { rowCount } = await pool.query('SELECT 1 FROM contacts WHERE id = $1', [req.params.id]);
@@ -408,7 +409,7 @@ router.post('/contacts/:id/self', requireAuth, ah(async (req, res) => {
       [req.ambassador.id]
     );
     await pool.query(
-      'UPDATE contacts SET self_of_ambassador_id = $1, updated_at = now() WHERE id = $2',
+      'UPDATE contacts SET self_of_ambassador_id = $1, ambassador_id = $1, updated_at = now() WHERE id = $2',
       [req.ambassador.id, req.params.id]
     );
   }
@@ -614,6 +615,8 @@ router.get('/campaign-settings', ah(async (req, res) => {
            event_name, event_tagline, event_date_text, event_datetime, event_location, org_name,
            invite_brand_text, invite_message_text, invite_footer_text,
            quotes_general, quotes_partners, quotes_participants,
+           stats_tiles_enabled, stats_leader_enabled, stats_chart_arriving_enabled,
+           stats_chart_registered_enabled, stats_chart_effort_enabled, stats_timeline_enabled, stats_leaderboard_enabled,
            (logo_image IS NOT NULL) AS has_logo, (hero_image IS NOT NULL) AS has_hero,
            (shared_login_pin_hash IS NOT NULL) AS has_shared_pin
     FROM campaign_settings WHERE id = 1
@@ -635,6 +638,13 @@ router.get('/campaign-settings', ah(async (req, res) => {
     quotesGeneral: s.quotes_general,
     quotesPartners: s.quotes_partners,
     quotesParticipants: s.quotes_participants,
+    statsTilesEnabled: s.stats_tiles_enabled !== false,
+    statsLeaderEnabled: s.stats_leader_enabled !== false,
+    statsChartArrivingEnabled: s.stats_chart_arriving_enabled !== false,
+    statsChartRegisteredEnabled: s.stats_chart_registered_enabled !== false,
+    statsChartEffortEnabled: s.stats_chart_effort_enabled !== false,
+    statsTimelineEnabled: s.stats_timeline_enabled !== false,
+    statsLeaderboardEnabled: s.stats_leaderboard_enabled !== false,
     hasSharedPin: !!s.has_shared_pin,
     hasCustomLogo: !!s.has_logo,
     hasCustomHero: !!s.has_hero
@@ -646,7 +656,9 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
     rsvpEnabled, seatingEnabled, loginMode, sharedPin,
     eventName, eventTagline, eventDateText, eventDatetime, eventLocation, orgName,
     inviteBrandText, inviteMessageText, inviteFooterText,
-    quotesGeneral, quotesPartners, quotesParticipants
+    quotesGeneral, quotesPartners, quotesParticipants,
+    statsTilesEnabled, statsLeaderEnabled, statsChartArrivingEnabled,
+    statsChartRegisteredEnabled, statsChartEffortEnabled, statsTimelineEnabled, statsLeaderboardEnabled
   } = req.body || {};
   const updates = [];
   const values = [];
@@ -674,6 +686,20 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
     const cleaned = quoteValues[key].replace(/\r\n/g, '\n').split('\n').map(q => q.trim()).filter(Boolean).join('\n');
     if (!cleaned) return res.status(400).json({ error: 'צריך לפחות משפט עידוד אחד בכל קטגוריה' });
     updates.push(`${column} = $${i++}`); values.push(cleaned);
+  }
+  const statsToggleFields = {
+    statsTilesEnabled: 'stats_tiles_enabled', statsLeaderEnabled: 'stats_leader_enabled',
+    statsChartArrivingEnabled: 'stats_chart_arriving_enabled', statsChartRegisteredEnabled: 'stats_chart_registered_enabled',
+    statsChartEffortEnabled: 'stats_chart_effort_enabled', statsTimelineEnabled: 'stats_timeline_enabled',
+    statsLeaderboardEnabled: 'stats_leaderboard_enabled'
+  };
+  const statsToggleValues = {
+    statsTilesEnabled, statsLeaderEnabled, statsChartArrivingEnabled,
+    statsChartRegisteredEnabled, statsChartEffortEnabled, statsTimelineEnabled, statsLeaderboardEnabled
+  };
+  for (const [key, column] of Object.entries(statsToggleFields)) {
+    if (statsToggleValues[key] === undefined) continue;
+    updates.push(`${column} = $${i++}`); values.push(!!statsToggleValues[key]);
   }
   if (!updates.length) return res.json({ ok: true });
   updates.push('updated_at = now()');

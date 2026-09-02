@@ -47,6 +47,14 @@ CREATE TABLE IF NOT EXISTS campaign_settings (
   quotes_participants TEXT NOT NULL DEFAULT 'מעשה קטן שלכם היום — שיחה אחת, טלפון אחד — יכול להביא שינוי גדול מחר.
 גם שיחה שלא הצליחה היא חלק מהדרך — ממשיכים לחייג, לדבר, ולהאמין.
 כל שם נוסף ברשימה שלכם הוא עוד אדם שמרגיש שייך. תודה שאתם לא מוותרים!',
+  -- הפעלה/כיבוי לכל ריבוע/גרף בלשונית הסטטיסטיקה בנפרד — למנהל קמפיין
+  stats_tiles_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  stats_leader_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  stats_chart_arriving_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  stats_chart_registered_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  stats_chart_effort_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  stats_timeline_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  stats_leaderboard_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   logo_image BYTEA,
   logo_image_type TEXT,
   hero_image BYTEA,
@@ -140,6 +148,13 @@ ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS quotes_partners TEXT NOT 
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS quotes_participants TEXT NOT NULL DEFAULT 'מעשה קטן שלכם היום — שיחה אחת, טלפון אחד — יכול להביא שינוי גדול מחר.
 גם שיחה שלא הצליחה היא חלק מהדרך — ממשיכים לחייג, לדבר, ולהאמין.
 כל שם נוסף ברשימה שלכם הוא עוד אדם שמרגיש שייך. תודה שאתם לא מוותרים!';
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_tiles_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_leader_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_chart_arriving_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_chart_registered_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_chart_effort_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_timeline_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_leaderboard_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- מעבר ממבנה קודם: עמודת motivational_quotes יחידה (שדרוג קצר-חיים) -> quotes_general, ומחיקתה
 DO $$
