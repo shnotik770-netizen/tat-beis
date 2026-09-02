@@ -869,11 +869,11 @@
   }
 
   function renderCard(c, opts, assignAmbs, selected){
-    // ב"הכל" וב"פתוחים" מדלגים על תגית "טרם נקבע סטטוס" כשאין סטטוס — היא מיותרת שם
+    // ב"הכל" וב"פתוחים" מדלגים על תגית "טרם נוצר קשר" כשאין סטטוס — היא מיותרת שם
     // (בפתוחים כפתור "קח לרשימה שלי" כבר אומר את זה; ב"הכל" זה סתם רעש ברשימה גדולה)
     var statusBadge = c.status
       ? '<span class="badge-status" style="background:' + (STATUS_COLORS[c.status] || '#888') + '">' + esc(c.status) + '</span>'
-      : (opts.scope === 'all' || opts.scope === 'unassigned' ? '' : '<span class="badge-cat" style="color:#b45309;background:#fff7e6">טרם נקבע סטטוס</span>');
+      : (opts.scope === 'all' || opts.scope === 'unassigned' ? '' : '<span class="badge-cat" style="color:#b45309;background:#fff7e6">טרם נוצר קשר</span>');
     var ambBadge = (opts.scope === 'all' || opts.scope === 'candidates') && c.ambassador
       ? '<span class="badge-amb">שגריר: ' + esc(c.ambassador.name) + '</span>' : '';
     var candidateBadge = c.isAmbassadorCandidate ? '<span class="badge-amb">🌟 מועמד/ת לשגרירות</span>' : '';
@@ -1572,11 +1572,11 @@
               state.statuses.forEach(function(other){ if (STATS_MERGE_STATUS[other] === s) cnt += (a.byStatus[other] || 0); });
               return cnt ? '<span class="badge-status" style="background:' + (STATUS_COLORS[s] || '#888') + '">' + esc(s) + ': ' + cnt + '</span>' : '';
             }).join('');
-            var noneCnt = a.byStatus['טרם נקבע סטטוס'] || 0;
+            var noneCnt = a.byStatus['טרם נוצר קשר'] || 0;
             return '<div class="card">' +
               '<div class="card-name">' + esc(a.name) + '</div>' +
               '<div class="hint">סה"כ אחראי/ת על ' + a.total + ' אנשים · ' + a.updatesCount + ' עדכוני סטטוס</div>' +
-              '<div class="badges">' + badges + (noneCnt ? '<span class="badge-cat">טרם נקבע סטטוס: ' + noneCnt + '</span>' : '') + '</div>' +
+              '<div class="badges">' + badges + (noneCnt ? '<span class="badge-cat">טרם נוצר קשר: ' + noneCnt + '</span>' : '') + '</div>' +
             '</div>';
           }).join('') : '<div class="empty">אין עדיין שגרירים עם אנשים ברשימה.</div>') : '');
     }).catch(function(e){

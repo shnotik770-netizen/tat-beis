@@ -343,7 +343,7 @@ router.post('/contacts/:id/assign', requireAdmin, ah(async (req, res) => {
 router.post('/contacts/:id/status', requireAuth, ah(loadContactForEdit), ah(async (req, res) => {
   const { status } = req.body || {};
   if (!status) {
-    // ביטול הסימון — חוזרים ל"טרם נקבע סטטוס". ההיסטוריה נשארת כתיעוד של מה שכבר קרה.
+    // ביטול הסימון — חוזרים ל"טרם נוצר קשר". ההיסטוריה נשארת כתיעוד של מה שכבר קרה.
     await pool.query('UPDATE contacts SET status = NULL, updated_at = now() WHERE id = $1', [req.params.id]);
   } else {
     if (!STATUSES.includes(status)) return res.status(400).json({ error: 'סטטוס לא מוכר' });
@@ -770,7 +770,7 @@ router.get('/stats/ambassadors', requireAuth, ah(async (req, res) => {
   for (const row of statusCounts) {
     const entry = byAmb.get(row.ambassador_id);
     if (!entry) continue;
-    const key = row.status || 'טרם נקבע סטטוס';
+    const key = row.status || 'טרם נוצר קשר';
     entry.byStatus[key] = (entry.byStatus[key] || 0) + row.cnt;
     entry.total += row.cnt;
   }
