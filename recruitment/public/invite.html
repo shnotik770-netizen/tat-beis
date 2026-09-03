@@ -120,6 +120,14 @@
     return '<a href="#rsvp-block" class="jump-link">אישור הגעה ⬇</a>';
   }
 
+  // קישור לאתר "הכוח לצמוח" — הסיפור המלא מאחורי בית החינוך, חמש שנות צמיחה
+  function growthSiteHtml(){
+    return '<div class="card" style="margin-top:14px">' +
+      '<div style="font-size:14px;color:var(--muted);margin-bottom:10px">מעוניינים להכיר לעומק את הסיפור שמאחורי המוסד?</div>' +
+      '<a class="btn btn-outline" href="https://tzmicha-site-production.up.railway.app/" target="_blank" rel="noopener" style="text-decoration:none;width:100%">🌱 להכיר לעומק את נושא הצמיחה</a>' +
+    '</div>';
+  }
+
   function seatBox(invite){
     if (!invite.seatNumber && !invite.companionSeatNumber) return '';
     var tiles = '';
@@ -154,6 +162,7 @@
         seatBox(invite) +
         (invite.rsvpEnabled === false ? '' : '<button class="btn-ghost" id="change-btn">שינוי תשובה</button>') +
       '</div>' +
+      growthSiteHtml() +
       '<div class="footer-note">' + nl2br(EVENT.footerText) + '</div>';
     if (invite.rsvpEnabled !== false) document.getElementById('change-btn').onclick = function(){ renderChoices(invite); };
   }
@@ -178,6 +187,7 @@
         '<hr class="divider">' +
         '<div id="rsvp-area"></div>' +
       '</div>' +
+      growthSiteHtml() +
       '<div class="footer-note">' + nl2br(EVENT.footerText) + '</div>';
 
     if (invite.rsvpEnabled === false) {

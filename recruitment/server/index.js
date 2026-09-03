@@ -30,6 +30,11 @@ app.get('/assets/save-the-date.jpg', async (req, res, next) => {
   next();
 });
 
+// כתובת השורש מפנה לאתר "הכוח לצמוח" (עמוד נחיתה נפרד על צמיחת בית החינוך) —
+// דף האירוע/ה-index הישן נשאר נגיש ישירות בכתובת /event למי שצריך אותו
+app.get('/', (req, res) => res.redirect(302, 'https://tzmicha-site-production.up.railway.app/'));
+app.get('/event', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api', apiRouter);
 
