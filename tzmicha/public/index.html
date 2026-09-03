@@ -17,20 +17,22 @@
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
   .bar-card:hover { background: rgba(255,255,255,0.05); }
   .pledge-cta:hover { transform: translateY(-3px); background: linear-gradient(180deg,rgba(216,180,106,0.28),rgba(216,180,106,0.12)); box-shadow: 0 18px 50px rgba(216,180,106,0.22); }
+  #topnav .navscroll::-webkit-scrollbar { display: none; }
+  section[id] { scroll-margin-top: 76px; }
 </style>
 </head>
 <body>
 <div dir="rtl" style="background:#071431; color:#eaf0fb; font-family:'Heebo',sans-serif; overflow-x:hidden">
 
-  <div style="position:fixed; top:0; right:0; left:0; z-index:60; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 5vw; background:rgba(7,20,49,0.85); backdrop-filter:blur(14px); border-bottom:1px solid rgba(216,180,106,0.18)">
-    <img src="assets/logo.png" alt="צומחים — חב&quot;ד עפולה" style="height:42px; width:auto; display:block; flex:none">
-    <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end">
-      <a href="#malchus" style="font-size:14px; padding:6px 12px; border-radius:999px; border:1px solid rgba(234,240,251,0.16); color:#eaf0fb">דבר מלכות</a>
-      <a href="#growth" style="font-size:14px; padding:6px 12px; border-radius:999px; border:1px solid rgba(234,240,251,0.16); color:#eaf0fb">הצמיחה</a>
-      <a href="#numbers" style="font-size:14px; padding:6px 12px; border-radius:999px; border:1px solid rgba(234,240,251,0.16); color:#eaf0fb">מספרים מדברים</a>
-      <a href="#nerot" style="font-size:14px; padding:6px 12px; border-radius:999px; border:1px solid rgba(234,240,251,0.16); color:#eaf0fb">נרות להאיר</a>
-      <a href="#invite" style="font-size:14px; padding:6px 12px; border-radius:999px; border:1px solid rgba(234,240,251,0.16); color:#eaf0fb">ערב הוקרה</a>
-      <a href="#pledge" style="font-size:14px; padding:6px 12px; border-radius:999px; border:1px solid #d8b46a; background:rgba(216,180,106,0.14); color:#f0d59b">פלעדזש</a>
+  <div id="topnav" style="position:fixed; top:0; right:0; left:0; z-index:60; display:flex; align-items:center; gap:14px; padding:12px 5vw; background:rgba(7,20,49,0.9); backdrop-filter:blur(14px); border-bottom:1px solid rgba(216,180,106,0.18)">
+    <img src="assets/logo.png" alt="צומחים — חב&quot;ד עפולה" style="height:36px; width:auto; display:block; flex:none">
+    <div class="navscroll" style="display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; mask-image:linear-gradient(to left, transparent, #000 16px)">
+      <a href="#malchus" style="flex:none; font-size:13.5px; padding:6px 12px; border-radius:999px; border:1px solid rgba(234,240,251,0.16); color:#eaf0fb; white-space:nowrap">דבר מלכות</a>
+      <a href="#growth" style="flex:none; font-size:13.5px; padding:6px 12px; border-radius:999px; border:1px solid rgba(234,240,251,0.16); color:#eaf0fb; white-space:nowrap">הצמיחה</a>
+      <a href="#numbers" style="flex:none; font-size:13.5px; padding:6px 12px; border-radius:999px; border:1px solid rgba(234,240,251,0.16); color:#eaf0fb; white-space:nowrap">מספרים מדברים</a>
+      <a href="#nerot" style="flex:none; font-size:13.5px; padding:6px 12px; border-radius:999px; border:1px solid rgba(234,240,251,0.16); color:#eaf0fb; white-space:nowrap">נרות להאיר</a>
+      <a href="#invite" style="flex:none; font-size:13.5px; padding:6px 12px; border-radius:999px; border:1px solid rgba(234,240,251,0.16); color:#eaf0fb; white-space:nowrap">ערב הוקרה</a>
+      <a href="#pledge" style="flex:none; font-size:13.5px; padding:6px 12px; border-radius:999px; border:1px solid #d8b46a; background:rgba(216,180,106,0.14); color:#f0d59b; white-space:nowrap">פלעדזש</a>
     </div>
   </div>
 
@@ -111,27 +113,25 @@
     <img src="assets/sprout.jpg" alt="" style="position:absolute; left:-4%; bottom:0; width:min(420px,40vw); opacity:0.28; pointer-events:none">
     <div style="position:relative; max-width:1120px; margin:0 auto">
       <h2 style="font-family:'Frank Ruhl Libre',serif; font-weight:900; font-size:clamp(44px,9vw,96px); line-height:1; margin:0; color:#fff">מספרים<br>מדברים</h2>
-      <div style="margin-top:38px; position:relative; padding:18px 0 34px">
-        <img src="assets/rising-graph-final.png" alt="" style="position:absolute; top:-30px; left:-6%; width:min(420px,58vw); height:auto; opacity:0.92; pointer-events:none; z-index:0">
-        <div style="position:relative; z-index:1; border:1px solid rgba(216,180,106,0.55); border-radius:5px; padding:22px 26px; background:rgba(7,20,49,0.55); backdrop-filter:blur(2px); max-width:340px">
-          <div style="font-family:'Frank Ruhl Libre',serif; font-size:clamp(24px,3.4vw,34px); color:#d8b46a; margin-bottom:8px">מעלין בקודש</div>
-          <div style="font-size:clamp(17px,2.2vw,22px); line-height:1.5; color:#fff">שימו לב לגרף ההוצאות<br>העולה בהתמדה</div>
-        </div>
+      <div style="margin-top:38px; border:1px solid rgba(216,180,106,0.55); border-radius:5px; padding:22px 26px; background:rgba(7,20,49,0.45); max-width:340px">
+        <div style="font-family:'Frank Ruhl Libre',serif; font-size:clamp(24px,3.4vw,34px); color:#d8b46a; margin-bottom:8px">מעלין בקודש</div>
+        <div style="font-size:clamp(17px,2.2vw,22px); line-height:1.5; color:#fff">שימו לב לגרף ההוצאות<br>העולה בהתמדה</div>
       </div>
-      <p style="max-width:640px; margin:34px 0 0; font-size:19px; line-height:1.85; color:rgba(234,240,251,0.78)">לקראת ערב הרתימה והשותפות, אנחנו מספקים הצצה אל המספרים שגורמים לכל המפעל הזה להצליח. לצמוח.</p>
 
-      <div style="margin-top:60px; border:1px solid rgba(234,240,251,0.14); border-radius:8px; padding:clamp(20px,4vw,40px); background:rgba(7,20,49,0.55)">
-        <div style="display:flex; flex-wrap:wrap; gap:24px; justify-content:space-between; align-items:flex-end; margin-bottom:40px">
+      <div style="margin-top:60px; position:relative; border:1px solid rgba(234,240,251,0.14); border-radius:8px; padding:clamp(20px,4vw,40px); background:rgba(7,20,49,0.55); overflow:hidden">
+        <img src="assets/rising-graph-final.png" alt="" style="position:absolute; inset:0; margin:auto; width:min(520px,72%); height:auto; opacity:0.22; pointer-events:none; z-index:0">
+        <div style="position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:24px; justify-content:space-between; align-items:flex-end; margin-bottom:40px">
           <div>
             <div style="font-size:15px; color:rgba(234,240,251,0.6); margin-bottom:8px">סה"כ הוצאות במשך השנים</div>
             <div style="font-family:'Frank Ruhl Libre',serif; font-weight:900; font-size:clamp(38px,7vw,64px); color:#d8b46a; direction:ltr">8,677,200 ₪</div>
-            <div style="margin-top:10px; font-size:14px; line-height:1.6; color:rgba(234,240,251,0.6); max-width:340px">כולל 700,000 ₪ הוצאה חד פעמית של הקמת המבנים בתשפ"ד, שאינה נכללת בעמודת אותה שנה</div>
           </div>
           <div style="font-size:15px; line-height:1.6; color:rgba(234,240,251,0.6); max-width:300px">לחצו על עמודה כדי לראות את פירוט העלויות של אותה שנה.</div>
         </div>
 
-        <div id="bars" style="display:flex; gap:clamp(8px,2vw,26px); align-items:stretch; height:340px"></div>
+        <div id="bars" style="position:relative; z-index:1; display:flex; gap:clamp(8px,2vw,26px); align-items:stretch; height:340px"></div>
       </div>
+
+      <p style="margin:24px 0 0; font-size:clamp(13px,1.7vw,17px); line-height:1.6; color:rgba(234,240,251,0.78); text-align:center">לקראת ערב הרתימה והשותפות, אנחנו מספקים הצצה אל המספרים שגורמים לכל המפעל הזה להצליח. לצמוח.</p>
 
       <div style="margin-top:24px; border:1px solid rgba(216,180,106,0.3); border-radius:8px; padding:clamp(20px,4vw,36px); background:rgba(7,20,49,0.55); animation:fadeIn 400ms ease-out both">
         <div style="display:flex; flex-wrap:wrap; gap:18px; justify-content:space-between; align-items:baseline; border-bottom:1px solid rgba(234,240,251,0.14); padding-bottom:20px; margin-bottom:8px">
@@ -320,10 +320,10 @@
     document.getElementById('sel-items').innerHTML = items.map(function(it){
       var note = it.name === y.noteCat ? '* הוצאה חד פעמית של הקמת המבנים - לא נכלל בסיכום' : '';
       var w = Math.round((it.raw / iMax) * 100) + '%';
-      return '<div style="display:grid; grid-template-columns:minmax(120px,1.1fr) minmax(80px,2fr) auto; gap:16px; align-items:center; padding:13px 0; border-bottom:1px solid rgba(234,240,251,0.07)">' +
-        '<div><div style="font-size:16px; color:rgba(234,240,251,0.88)">' + esc(it.name) + '</div><div style="font-size:13px; line-height:1.5; color:rgba(234,240,251,0.6)">' + esc(note) + '</div></div>' +
-        '<div style="height:8px; border-radius:999px; background:rgba(234,240,251,0.08); overflow:hidden"><div style="height:100%; border-radius:999px; background:linear-gradient(90deg,#3f7ed6,#8fc48a); transition:width 700ms cubic-bezier(.2,.8,.2,1); width:' + w + '"></div></div>' +
-        '<div style="font-size:16px; color:#fff; direction:ltr; min-width:92px; text-align:left">' + fmt(it.raw) + '</div>' +
+      return '<div style="display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1.4fr) minmax(0,auto); gap:10px; align-items:center; padding:13px 0; border-bottom:1px solid rgba(234,240,251,0.07); min-width:0">' +
+        '<div style="min-width:0"><div style="font-size:16px; color:rgba(234,240,251,0.88)">' + esc(it.name) + '</div><div style="font-size:13px; line-height:1.5; color:rgba(234,240,251,0.6)">' + esc(note) + '</div></div>' +
+        '<div style="min-width:0; height:8px; border-radius:999px; background:rgba(234,240,251,0.08); overflow:hidden"><div style="height:100%; border-radius:999px; background:linear-gradient(90deg,#3f7ed6,#8fc48a); transition:width 700ms cubic-bezier(.2,.8,.2,1); width:' + w + '"></div></div>' +
+        '<div style="font-size:15px; color:#fff; direction:ltr; text-align:left; white-space:nowrap">' + fmt(it.raw) + '</div>' +
       '</div>';
     }).join('');
   }
