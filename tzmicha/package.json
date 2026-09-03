@@ -1,0 +1,15 @@
+{
+  "name": "tzmicha-site",
+  "version": "1.0.0",
+  "description": "עלון \"הכוח לצמוח\" — צומחים, חב\"ד עפולה",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.22.2"
+  }
+}
