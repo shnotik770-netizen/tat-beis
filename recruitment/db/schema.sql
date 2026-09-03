@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS campaign_settings (
   stats_chart_effort_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   stats_timeline_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   stats_leaderboard_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  -- דוח מפורט בגוגל שיטס שמתעדכן אוטומטית: מזהה הגיליון שנוצר (פעם אחת, נשמר לשימוש חוזר),
+  -- מייל לשיתוף (מנהל הקמפיין מזין), וזמן הסנכרון האחרון — לתצוגה בממשק
+  google_sheet_id TEXT,
+  google_sheet_share_email TEXT,
+  google_sheet_last_synced_at TIMESTAMPTZ,
   logo_image BYTEA,
   logo_image_type TEXT,
   hero_image BYTEA,
@@ -159,6 +164,9 @@ ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_chart_effort_enable
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_timeline_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_leaderboard_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_official BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS google_sheet_id TEXT;
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS google_sheet_share_email TEXT;
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS google_sheet_last_synced_at TIMESTAMPTZ;
 
 -- מעבר ממבנה קודם: עמודת motivational_quotes יחידה (שדרוג קצר-חיים) -> quotes_general, ומחיקתה
 DO $$

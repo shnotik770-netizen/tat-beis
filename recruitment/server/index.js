@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const { pool, migrate } = require('./db');
 const apiRouter = require('./api');
+const sheetsSync = require('./sheets');
 
 const app = express();
 app.use(express.json({ limit: '8mb' })); // כולל מקום לתמונות לוגו/הזמנה בבסיס 64 שמנהל קמפיין מעלה
@@ -56,6 +57,8 @@ async function start() {
     console.error('   ודאו ש-DATABASE_URL מוגדר נכון (Railway → ה-Postgres plugin → Variables).');
   }
   app.listen(PORT, () => console.log(`🚀 Recruitment server running on port ${PORT}`));
+  // רענון מלא אוטומטי של דוח גוגל שיטס — פועל רק אם GOOGLE_SERVICE_ACCOUNT_* מוגדרים (ראו README)
+  sheetsSync.startAutoSync(Number(process.env.GOOGLE_SHEET_SYNC_MINUTES) || 5);
 }
 
 start();

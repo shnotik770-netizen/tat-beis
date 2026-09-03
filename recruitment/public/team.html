@@ -1873,6 +1873,22 @@
           '</div>' +
           '<input type="file" id="cs-hero-file" accept="image/*"></div>' +
 
+        '<hr class="divider">' +
+        '<div class="sec-title">📊 דוח מפורט בגוגל שיטס</div>' +
+        (s.googleSheets.configured ?
+          ('<div class="hint" style="margin-bottom:10px">גיליון אחד עם כל אנשי הקשר (כמו קובץ האקסל), שמתעדכן אוטומטית ברענון מלא כל כמה דקות — נוח לצפייה משותפת בלי צורך בהורדה חוזרת.</div>' +
+          '<div class="field"><label>מייל לשיתוף הגיליון (חשבון גוגל)</label><input id="cs-sheet-email" type="email" value="' + esc(s.googleSheets.shareEmail || '') + '" placeholder="you@gmail.com"></div>' +
+          (s.googleSheets.sheetUrl ?
+            ('<div class="hint" style="margin-bottom:10px">' +
+              '<a href="' + esc(s.googleSheets.sheetUrl) + '" target="_blank" rel="noopener">🔗 פתיחת הגיליון</a>' +
+              (s.googleSheets.lastSyncedAt ? ' — עודכן לאחרונה ' + new Date(s.googleSheets.lastSyncedAt).toLocaleString('he-IL') : '') +
+            '</div>')
+            : '<div class="hint" style="margin-bottom:10px">עדיין לא נוצר גיליון — לחצו על הכפתור כדי ליצור ולסנכרן בפעם הראשונה.</div>') +
+          '<button class="btn btn-outline btn-sm" id="cs-sheet-sync" type="button">🔄 יצירה/סנכרון עכשיו</button>' +
+          '<div id="cs-sheet-msg" style="margin-top:8px"></div>')
+          : '<div class="hint">התכונה דורשת חיבור חשבון שירות של גוגל בצד השרת (משתני סביבה ב-Railway) — ראו README לפרטי ההגדרה. עד אז אפשר להמשיך להשתמש בייצוא לאקסל.</div>'
+        ) +
+
         '<div id="cs-msg" style="margin-top:14px"></div>' +
         '<button class="btn btn-gold" id="cs-save" style="margin-top:4px">💾 שמירת הגדרות</button>';
 
@@ -1923,6 +1939,7 @@
           statsLeaderboardEnabled: body.querySelector('#cs-stats-leaderboard').checked
         };
         if (sharedPin) payload.sharedPin = sharedPin;
+        if (body.querySelector('#cs-sheet-email')) payload.googleSheetShareEmail = body.querySelector('#cs-sheet-email').value.trim();
         api('/campaign-settings', {method:'PATCH', body: JSON.stringify(payload)}).then(function(){
           msg.innerHTML = '<div class="ok-msg">נשמר בהצלחה ✔️</div>';
           renderAdminSettings(body);
@@ -1951,6 +1968,22 @@
       };
       if (body.querySelector('#cs-hero-remove')) body.querySelector('#cs-hero-remove').onclick = function(){
         api('/campaign-settings/hero', {method:'DELETE'}).then(function(){ renderAdminSettings(body); }).catch(function(e){ alert(e.message); });
+      };
+      if (body.querySelector('#cs-sheet-sync')) body.querySelector('#cs-sheet-sync').onclick = function(){
+        var btn = body.querySelector('#cs-sheet-sync');
+        var sheetMsg = body.querySelector('#cs-sheet-msg');
+        var email = body.querySelector('#cs-sheet-email').value.trim();
+        btn.disabled = true; btn.textContent = 'מסנכרן…';
+        (email !== (s.googleSheets.shareEmail || '') ? api('/campaign-settings', {method:'PATCH', body: JSON.stringify({googleSheetShareEmail: email})}) : Promise.resolve())
+          .then(function(){ return api('/campaign-settings/google-sheet/sync-now', {method:'POST'}); })
+          .then(function(){
+            sheetMsg.innerHTML = '<div class="ok-msg">סונכרן בהצלחה ✔️</div>';
+            renderAdminSettings(body);
+          })
+          .catch(function(e){
+            btn.disabled = false; btn.textContent = '🔄 יצירה/סנכרון עכשיו';
+            sheetMsg.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+          });
       };
     }).catch(function(e){ body.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
   }

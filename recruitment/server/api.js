@@ -3,6 +3,8 @@ const ExcelJS = require('exceljs');
 const { pool } = require('./db');
 const STATUSES = require('./statuses');
 const { hashPin, verifyPin, generateInviteToken } = require('./auth');
+const { REPORT_COLUMNS, fetchReportRows } = require('./report');
+const sheetsSync = require('./sheets');
 
 const router = express.Router();
 
@@ -175,43 +177,14 @@ router.get('/contacts', requireAuth, ah(async (req, res) => {
 
 // ייצוא כל הרשימה לאקסל — למנהל בלבד
 router.get('/contacts/export.xlsx', requireAdmin, ah(async (req, res) => {
-  const { rows } = await pool.query(CONTACT_SELECT + ' ORDER BY c.name');
-  const contacts = rows.map(shapeContact);
+  const reportRows = await fetchReportRows(pool);
 
   const wb = new ExcelJS.Workbook();
   const sheet = wb.addWorksheet('אנשי קשר');
   sheet.views = [{ rightToLeft: true }];
-  sheet.columns = [
-    { header: 'שם', key: 'name', width: 22 },
-    { header: 'טלפון', key: 'phone', width: 14 },
-    { header: 'סטטוס', key: 'status', width: 22 },
-    { header: 'שגריר אחראי', key: 'ambassador', width: 18 },
-    { header: 'סיווגים', key: 'categories', width: 26 },
-    { header: 'הערות', key: 'notes', width: 30 },
-    { header: 'מקום ישיבה', key: 'seat', width: 12 },
-    { header: 'מקום לבן/בת הזוג', key: 'cseat', width: 15 },
-    { header: 'שם האיש בהזמנה', key: 'greet', width: 20 },
-    { header: 'שם האישה בהזמנה', key: 'cname', width: 20 },
-    { header: 'מגיע/ה עם בן/בת זוג', key: 'withc', width: 16 },
-    { header: 'תאריך הוספה', key: 'created', width: 14 }
-  ];
+  sheet.columns = REPORT_COLUMNS;
   sheet.getRow(1).font = { bold: true };
-  contacts.forEach(c => {
-    sheet.addRow({
-      name: c.name,
-      phone: c.phone || '',
-      status: c.status || '',
-      ambassador: c.ambassador ? c.ambassador.name : '',
-      categories: (c.categories || []).map(cat => cat.name).join(', '),
-      notes: c.notes || '',
-      seat: c.seatNumber || '',
-      cseat: c.companionSeatNumber || '',
-      greet: c.inviteGreetingName || '',
-      cname: c.inviteCompanionName || '',
-      withc: c.attendingWithCompanion === true ? 'כן' : (c.attendingWithCompanion === false ? 'לא' : ''),
-      created: c.createdAt ? new Date(c.createdAt).toLocaleDateString('he-IL') : ''
-    });
-  });
+  reportRows.forEach(row => sheet.addRow(row));
 
   const buffer = await wb.xlsx.writeBuffer();
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -630,6 +603,7 @@ router.get('/campaign-settings', ah(async (req, res) => {
            quotes_general, quotes_partners, quotes_participants,
            stats_tiles_enabled, stats_leader_enabled, stats_chart_arriving_enabled,
            stats_chart_registered_enabled, stats_chart_effort_enabled, stats_timeline_enabled, stats_leaderboard_enabled,
+           google_sheet_id, google_sheet_share_email, google_sheet_last_synced_at,
            (logo_image IS NOT NULL) AS has_logo, (hero_image IS NOT NULL) AS has_hero,
            (shared_login_pin_hash IS NOT NULL) AS has_shared_pin
     FROM campaign_settings WHERE id = 1
@@ -660,7 +634,13 @@ router.get('/campaign-settings', ah(async (req, res) => {
     statsLeaderboardEnabled: s.stats_leaderboard_enabled !== false,
     hasSharedPin: !!s.has_shared_pin,
     hasCustomLogo: !!s.has_logo,
-    hasCustomHero: !!s.has_hero
+    hasCustomHero: !!s.has_hero,
+    googleSheets: {
+      configured: sheetsSync.credentialsConfigured(),
+      sheetUrl: s.google_sheet_id ? `https://docs.google.com/spreadsheets/d/${s.google_sheet_id}/edit` : null,
+      shareEmail: s.google_sheet_share_email || '',
+      lastSyncedAt: s.google_sheet_last_synced_at
+    }
   });
 }));
 
@@ -671,7 +651,8 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
     inviteBrandText, inviteMessageText, inviteFooterText,
     quotesGeneral, quotesPartners, quotesParticipants,
     statsTilesEnabled, statsLeaderEnabled, statsChartArrivingEnabled,
-    statsChartRegisteredEnabled, statsChartEffortEnabled, statsTimelineEnabled, statsLeaderboardEnabled
+    statsChartRegisteredEnabled, statsChartEffortEnabled, statsTimelineEnabled, statsLeaderboardEnabled,
+    googleSheetShareEmail
   } = req.body || {};
   const updates = [];
   const values = [];
@@ -714,10 +695,30 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
     if (statsToggleValues[key] === undefined) continue;
     updates.push(`${column} = $${i++}`); values.push(!!statsToggleValues[key]);
   }
+  if (googleSheetShareEmail !== undefined) {
+    const email = googleSheetShareEmail.trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'כתובת מייל לא תקינה' });
+    updates.push(`google_sheet_share_email = $${i++}`); values.push(email || null);
+  }
   if (!updates.length) return res.json({ ok: true });
   updates.push('updated_at = now()');
   await pool.query(`UPDATE campaign_settings SET ${updates.join(', ')} WHERE id = 1`, values);
   res.json({ ok: true });
+}));
+
+// יצירה (בפעם הראשונה) וסנכרון מיידי של דוח אנשי הקשר לגוגל שיטס — למנהל קמפיין בלבד.
+// הסנכרון האוטומטי (כל כמה דקות) מופעל בנפרד מ-index.js ורץ ברקע כל עוד יש פרטי גישה בשרת.
+router.post('/campaign-settings/google-sheet/sync-now', requireCampaignManager, ah(async (req, res) => {
+  if (!sheetsSync.credentialsConfigured()) {
+    return res.status(400).json({ error: 'לא הוגדרו פרטי גישה לגוגל שיטס בשרת (ראו README)' });
+  }
+  await sheetsSync.syncNow({ forceShare: true });
+  const { rows } = await pool.query('SELECT google_sheet_id, google_sheet_last_synced_at FROM campaign_settings WHERE id = 1');
+  res.json({
+    ok: true,
+    sheetUrl: `https://docs.google.com/spreadsheets/d/${rows[0].google_sheet_id}/edit`,
+    lastSyncedAt: rows[0].google_sheet_last_synced_at
+  });
 }));
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
