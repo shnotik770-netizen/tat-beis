@@ -4,7 +4,7 @@ const CONTACT_SELECT = `
   SELECT c.id, c.name, c.phone, c.notes, c.status, c.created_at, c.updated_at,
          amb.id AS ambassador_id, amb.name AS ambassador_name,
          c.seat_number, c.companion_seat_number, c.attending_with_companion,
-         c.invite_greeting_name, c.invite_companion_name,
+         c.invite_greeting_name, c.invite_companion_name, c.invite_token,
          COALESCE((
            SELECT json_agg(json_build_object('id', cat.id, 'name', cat.name) ORDER BY cat.name)
            FROM contact_categories cc JOIN categories cat ON cat.id = cc.category_id
@@ -13,6 +13,10 @@ const CONTACT_SELECT = `
   FROM contacts c
   LEFT JOIN ambassadors amb ON amb.id = c.ambassador_id
 `;
+
+// כתובת השורש הציבורית לבניית קישורי ההזמנה האישית בדוח — אותה כתובת קבועה שכבר
+// משמשת לתגי og:image ולכפתור אתר הצמיחה בעמוד ההזמנה עצמו
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://recruitment-app-production-9b50.up.railway.app';
 
 const REPORT_COLUMNS = [
   { header: 'שם', key: 'name', width: 22 },
@@ -26,7 +30,8 @@ const REPORT_COLUMNS = [
   { header: 'שם האיש בהזמנה', key: 'greet', width: 20 },
   { header: 'שם האישה בהזמנה', key: 'cname', width: 20 },
   { header: 'מגיע/ה עם בן/בת זוג', key: 'withc', width: 16 },
-  { header: 'תאריך הוספה', key: 'created', width: 14 }
+  { header: 'תאריך הוספה', key: 'created', width: 14 },
+  { header: 'קישור הזמנה אישי', key: 'link', width: 42 }
 ];
 
 function contactToRow(r) {
@@ -42,7 +47,8 @@ function contactToRow(r) {
     greet: r.invite_greeting_name || '',
     cname: r.invite_companion_name || '',
     withc: r.attending_with_companion === true ? 'כן' : (r.attending_with_companion === false ? 'לא' : ''),
-    created: r.created_at ? new Date(r.created_at).toLocaleDateString('he-IL') : ''
+    created: r.created_at ? new Date(r.created_at).toLocaleDateString('he-IL') : '',
+    link: r.invite_token ? `${PUBLIC_BASE_URL}/invite/${r.invite_token}` : ''
   };
 }
 

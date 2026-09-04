@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS ambassadors (
   is_campaign_manager BOOLEAN NOT NULL DEFAULT FALSE,
   hidden BOOLEAN NOT NULL DEFAULT FALSE, -- "מנהל ראשי": לא מופיע ברשימת "מי אתה?", נכנסים אליו רק דרך קוד ייעודי
   pin_hash TEXT,
+  -- מנהל קמפיין מסמן ידנית אילו שגרירים מורשים לתעד בעצמם תרומות שקיבלו (עניין כספי — דורש קוד גישה
+  -- בכניסה תמיד, גם אם מצב הכניסה הכללי "none", באותו אופן שמנהלים כבר דורשים קוד היום)
+  can_enter_donations BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -167,6 +170,23 @@ ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_official BOOLEAN NOT NULL DEF
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS google_sheet_id TEXT;
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS google_sheet_share_email TEXT;
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS google_sheet_last_synced_at TIMESTAMPTZ;
+ALTER TABLE ambassadors ADD COLUMN IF NOT EXISTS can_enter_donations BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- תרומות מזומן שנאספו על ידי שגרירים (או ידנית ע"י מנהל, גם עבור שגריר אחר) — לא קשור לרשימת אנשי הקשר
+CREATE TABLE IF NOT EXISTS donations (
+  id SERIAL PRIMARY KEY,
+  ambassador_id INTEGER NOT NULL REFERENCES ambassadors(id) ON DELETE CASCADE,
+  donor_name TEXT NOT NULL,
+  donor_id_number TEXT,
+  donor_email TEXT,
+  donor_birthday DATE,
+  notes TEXT,
+  amount NUMERIC(12,2) NOT NULL,
+  method TEXT,
+  created_by INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_donations_ambassador ON donations(ambassador_id);
 
 -- מעבר ממבנה קודם: עמודת motivational_quotes יחידה (שדרוג קצר-חיים) -> quotes_general, ומחיקתה
 DO $$

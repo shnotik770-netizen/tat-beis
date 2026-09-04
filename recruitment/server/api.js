@@ -18,7 +18,7 @@ function ah(fn) {
 router.use(ah(async (req, res, next) => {
   const id = req.headers['x-ambassador-id'];
   if (!id) return next();
-  const { rows } = await pool.query('SELECT id, name, phone, is_admin, is_campaign_manager FROM ambassadors WHERE id = $1', [id]);
+  const { rows } = await pool.query('SELECT id, name, phone, is_admin, is_campaign_manager, can_enter_donations FROM ambassadors WHERE id = $1', [id]);
   if (rows[0]) req.ambassador = rows[0];
   next();
 }));
@@ -486,7 +486,7 @@ router.delete('/contacts/:id/comments/:commentId', requireAuth, ah(async (req, r
 // שגריר חבוי (מנהל ראשי) לעולם לא מופיע ברשימה הזו — לא במסך "מי אתה?" ולא בטבלת הניהול
 router.get('/ambassadors', ah(async (req, res) => {
   const { rows } = await pool.query(`
-    SELECT a.id, a.name, a.phone, a.is_admin, a.is_campaign_manager, (a.pin_hash IS NOT NULL) AS has_pin,
+    SELECT a.id, a.name, a.phone, a.is_admin, a.is_campaign_manager, a.can_enter_donations, (a.pin_hash IS NOT NULL) AS has_pin,
            COUNT(c.id)::int AS contact_count
     FROM ambassadors a
     LEFT JOIN contacts c ON c.ambassador_id = a.id
@@ -497,6 +497,7 @@ router.get('/ambassadors', ah(async (req, res) => {
   res.json(rows.map(r => ({
     id: r.id, name: r.name, phone: r.phone,
     isAdmin: r.is_admin, isCampaignManager: r.is_campaign_manager, hasPin: r.has_pin,
+    canEnterDonations: r.can_enter_donations,
     contactCount: r.contact_count
   })));
 }));
@@ -519,7 +520,7 @@ router.post('/primary-admin-login', ah(async (req, res) => {
 // per_user = לכל שגריר קוד אישי משלו.
 router.post('/ambassadors/:id/verify-pin', ah(async (req, res) => {
   const { pin } = req.body || {};
-  const { rows } = await pool.query('SELECT is_admin, pin_hash FROM ambassadors WHERE id = $1', [req.params.id]);
+  const { rows } = await pool.query('SELECT is_admin, can_enter_donations, pin_hash FROM ambassadors WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ ok: false, error: 'שגריר לא נמצא' });
 
   const { rows: settingsRows } = await pool.query('SELECT login_mode, shared_login_pin_hash FROM campaign_settings WHERE id = 1');
@@ -534,7 +535,9 @@ router.post('/ambassadors/:id/verify-pin', ah(async (req, res) => {
     if (!verifyPin(pin, rows[0].pin_hash)) return res.status(401).json({ ok: false, error: 'קוד גישה שגוי' });
     return res.json({ ok: true });
   }
-  if (!rows[0].is_admin) return res.json({ ok: true });
+  // גם ב-loginMode "none" (ברירת המחדל): מנהלים ושגרירים שהוסמכו לתעד תרומות (עניין כספי) חייבים קוד תמיד
+  if (!rows[0].is_admin && !rows[0].can_enter_donations) return res.json({ ok: true });
+  if (!rows[0].pin_hash) return res.status(401).json({ ok: false, error: 'לא הוגדר עדיין קוד גישה למשתמש הזה — יש לפנות למנהל' });
   if (!verifyPin(pin, rows[0].pin_hash)) return res.status(401).json({ ok: false, error: 'קוד גישה שגוי' });
   res.json({ ok: true });
 }));
@@ -564,9 +567,12 @@ router.post('/ambassadors', requireAdmin, ah(async (req, res) => {
 }));
 
 router.patch('/ambassadors/:id', requireAdmin, ah(async (req, res) => {
-  const { name, phone, isAdmin, isCampaignManager, pin } = req.body || {};
+  const { name, phone, isAdmin, isCampaignManager, canEnterDonations, pin } = req.body || {};
   if ((isAdmin !== undefined || isCampaignManager !== undefined) && !req.ambassador.is_campaign_manager) {
     return res.status(403).json({ error: 'רק מנהל קמפיין יכול לשנות הרשאות מנהל שגרירים / מנהל קמפיין' });
+  }
+  if (canEnterDonations !== undefined && !req.ambassador.is_campaign_manager) {
+    return res.status(403).json({ error: 'רק מנהל קמפיין יכול לשנות הרשאה לתעד תרומות' });
   }
   const updates = [];
   const values = [];
@@ -578,6 +584,7 @@ router.patch('/ambassadors/:id', requireAdmin, ah(async (req, res) => {
     // מנהל קמפיין הוא תמיד גם מנהל שגרירים — אי אפשר להפוך למנהל-קמפיין בלי is_admin
     updates.push(`is_admin = $${i++}`); values.push(isCampaignManager === true ? true : !!isAdmin);
   }
+  if (canEnterDonations !== undefined) { updates.push(`can_enter_donations = $${i++}`); values.push(!!canEnterDonations); }
   if (pin) { updates.push(`pin_hash = $${i++}`); values.push(hashPin(pin)); }
   if (!updates.length) return res.json({ ok: true });
   values.push(req.params.id);
@@ -591,6 +598,115 @@ router.delete('/ambassadors/:id', requireAdmin, ah(async (req, res) => {
   }
   await pool.query('UPDATE contacts SET ambassador_id = NULL WHERE ambassador_id = $1', [req.params.id]);
   await pool.query('DELETE FROM ambassadors WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
+}));
+
+// --- תרומות מזומן — עניין כספי, לכן פתוח רק למנהלים ולשגרירים שמנהל הקמפיין הרשה במפורש ---
+function requireDonationsAccess(req, res, next) {
+  if (!req.ambassador) return res.status(400).json({ error: 'יש לבחור זהות ("מי אתה") לפני שממשיכים' });
+  if (!req.ambassador.is_admin && !req.ambassador.can_enter_donations) {
+    return res.status(403).json({ error: 'אין לך הרשאה לתעד תרומות — יש לפנות למנהל הקמפיין' });
+  }
+  next();
+}
+
+const DONATION_SELECT = `
+  SELECT d.id, d.donor_name, d.donor_id_number, d.donor_email, d.donor_birthday, d.notes, d.amount, d.method, d.created_at,
+         amb.id AS ambassador_id, amb.name AS ambassador_name,
+         creator.id AS created_by_id, creator.name AS created_by_name
+  FROM donations d
+  JOIN ambassadors amb ON amb.id = d.ambassador_id
+  LEFT JOIN ambassadors creator ON creator.id = d.created_by
+`;
+
+function shapeDonation(r) {
+  return {
+    id: r.id,
+    donorName: r.donor_name,
+    donorIdNumber: r.donor_id_number,
+    donorEmail: r.donor_email,
+    donorBirthday: r.donor_birthday,
+    notes: r.notes,
+    amount: Number(r.amount),
+    method: r.method,
+    createdAt: r.created_at,
+    ambassador: { id: r.ambassador_id, name: r.ambassador_name },
+    createdBy: r.created_by_id ? { id: r.created_by_id, name: r.created_by_name } : null
+  };
+}
+
+// מנהל (is_admin) רואה את כל התרומות של כל השגרירים; שגריר שהורשה רואה רק את שלו
+router.get('/donations', requireDonationsAccess, ah(async (req, res) => {
+  const isManager = req.ambassador.is_admin;
+  const { rows } = await pool.query(
+    DONATION_SELECT + (isManager ? ' ORDER BY d.created_at DESC' : ' WHERE d.ambassador_id = $1 ORDER BY d.created_at DESC'),
+    isManager ? [] : [req.ambassador.id]
+  );
+  res.json(rows.map(shapeDonation));
+}));
+
+router.post('/donations', requireDonationsAccess, ah(async (req, res) => {
+  const { donorName, donorIdNumber, donorEmail, donorBirthday, notes, amount, method, ambassadorId } = req.body || {};
+  if (!donorName || !donorName.trim()) return res.status(400).json({ error: 'יש להזין שם תורם' });
+  const amt = Number(amount);
+  if (!amt || amt <= 0) return res.status(400).json({ error: 'יש להזין סכום תקין' });
+  let targetAmbassadorId = req.ambassador.id;
+  if (ambassadorId !== undefined && ambassadorId !== null && String(ambassadorId) !== String(req.ambassador.id)) {
+    if (!req.ambassador.is_admin) return res.status(403).json({ error: 'רק מנהל יכול לתעד תרומה עבור שגריר אחר' });
+    targetAmbassadorId = ambassadorId;
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO donations (ambassador_id, donor_name, donor_id_number, donor_email, donor_birthday, notes, amount, method, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+    [targetAmbassadorId, donorName.trim(), donorIdNumber || null, donorEmail || null, donorBirthday || null, notes || null, amt, method || null, req.ambassador.id]
+  );
+  const { rows: full } = await pool.query(DONATION_SELECT + ' WHERE d.id = $1', [rows[0].id]);
+  res.status(201).json(shapeDonation(full[0]));
+}));
+
+router.patch('/donations/:id', requireDonationsAccess, ah(async (req, res) => {
+  const { rows: existing } = await pool.query('SELECT ambassador_id FROM donations WHERE id = $1', [req.params.id]);
+  if (!existing[0]) return res.status(404).json({ error: 'תרומה לא נמצאה' });
+  if (!req.ambassador.is_admin && existing[0].ambassador_id !== req.ambassador.id) {
+    return res.status(403).json({ error: 'אין הרשאה לערוך תרומה זו' });
+  }
+  const { donorName, donorIdNumber, donorEmail, donorBirthday, notes, amount, method, ambassadorId } = req.body || {};
+  const updates = [];
+  const values = [];
+  let i = 1;
+  if (donorName !== undefined) {
+    if (!donorName.trim()) return res.status(400).json({ error: 'יש להזין שם תורם' });
+    updates.push(`donor_name = $${i++}`); values.push(donorName.trim());
+  }
+  if (donorIdNumber !== undefined) { updates.push(`donor_id_number = $${i++}`); values.push(donorIdNumber || null); }
+  if (donorEmail !== undefined) { updates.push(`donor_email = $${i++}`); values.push(donorEmail || null); }
+  if (donorBirthday !== undefined) { updates.push(`donor_birthday = $${i++}`); values.push(donorBirthday || null); }
+  if (notes !== undefined) { updates.push(`notes = $${i++}`); values.push(notes || null); }
+  if (amount !== undefined) {
+    const amt = Number(amount);
+    if (!amt || amt <= 0) return res.status(400).json({ error: 'יש להזין סכום תקין' });
+    updates.push(`amount = $${i++}`); values.push(amt);
+  }
+  if (method !== undefined) { updates.push(`method = $${i++}`); values.push(method || null); }
+  if (ambassadorId !== undefined) {
+    if (!req.ambassador.is_admin) return res.status(403).json({ error: 'רק מנהל יכול לשייך תרומה לשגריר אחר' });
+    updates.push(`ambassador_id = $${i++}`); values.push(ambassadorId);
+  }
+  if (updates.length) {
+    values.push(req.params.id);
+    await pool.query(`UPDATE donations SET ${updates.join(', ')} WHERE id = $${i}`, values);
+  }
+  const { rows: full } = await pool.query(DONATION_SELECT + ' WHERE d.id = $1', [req.params.id]);
+  res.json(shapeDonation(full[0]));
+}));
+
+router.delete('/donations/:id', requireDonationsAccess, ah(async (req, res) => {
+  const { rows: existing } = await pool.query('SELECT ambassador_id FROM donations WHERE id = $1', [req.params.id]);
+  if (!existing[0]) return res.status(404).json({ error: 'תרומה לא נמצאה' });
+  if (!req.ambassador.is_admin && existing[0].ambassador_id !== req.ambassador.id) {
+    return res.status(403).json({ error: 'אין הרשאה למחוק תרומה זו' });
+  }
+  await pool.query('DELETE FROM donations WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 }));
 
