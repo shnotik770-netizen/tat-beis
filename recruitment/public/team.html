@@ -1906,15 +1906,18 @@
 
     var summary =
       '<button class="link-btn" data-don-toggle="' + d.id + '" style="font-size:15px;line-height:1;padding:0 4px">' + (expanded ? '▾' : '▸') + '</button>' +
-      '<div style="flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">' +
+      '<div style="flex:1;min-width:0;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">' +
         '<span style="font-weight:700">' + esc(d.donorName) + '</span>' +
+        (isAdmin ? '<span style="color:var(--muted);font-size:12px">· ' + esc(d.ambassador.name) + '</span>' : '') +
         '<span style="color:var(--muted);font-size:12.5px">' + d.amount.toLocaleString('he-IL') + ' ₪</span>' +
       '</div>' +
       '<span style="font-size:13px;white-space:nowrap">' + statusBadge + '</span>' +
       '<span style="color:var(--muted);font-size:11.5px;white-space:nowrap">' + (d.createdAt ? new Date(d.createdAt).toLocaleDateString('he-IL') : '') + '</span>';
 
-    var detail = '';
-    if (expanded && editing) {
+    // הפירוט תמיד קיים ב-DOM (מוסתר ב-CSS בלבד כשמכווץ) כדי שפתיחה/סגירה תהיה תגובתית מיידית
+    // בלי לרענן מהשרת ולגרום ל"קפיצה" בעמוד — ראו wiring ב-renderDonationsTab
+    var detail;
+    if (editing) {
       var pfx = 'ed' + d.id + '-';
       detail =
         donationFieldsHtml(pfx, isAdmin, ambs, d) +
@@ -1923,7 +1926,7 @@
           '<button class="btn btn-gold btn-sm" data-don-save="' + d.id + '">💾 שמירה</button>' +
           '<button class="btn btn-outline btn-sm" data-don-cancel-edit="' + d.id + '">ביטול</button>' +
         '</div>';
-    } else if (expanded) {
+    } else {
       var lines = [];
       if (d.donorPhone) lines.push('טלפון: ' + esc(d.donorPhone));
       if (d.donorIdNumber) lines.push('ת.ז: ' + esc(d.donorIdNumber));
@@ -1960,7 +1963,7 @@
 
     return '<div class="card" style="padding:9px 12px;margin-bottom:8px">' +
       '<div style="display:flex;align-items:center;gap:6px">' + summary + '</div>' +
-      (detail ? '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">' + detail + '</div>' : '') +
+      '<div id="dondetail' + d.id + '" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);' + (expanded ? '' : 'display:none') + '">' + detail + '</div>' +
     '</div>';
   }
 
@@ -2043,12 +2046,18 @@
         body.querySelector('#dn-filter-collected').onchange = function(){ state.donationsFilterCollected = this.value; renderDonationsTab(content); };
       }
 
+      // פתיחה/סגירה של פירוט תרומה היא סימון/הסתרה מקומית בלבד (בלי לפנות לשרת מחדש) — כך שאין
+      // רענון מלא של הרשימה ואין "קפיצה" בעמוד בכל לחיצה על החץ
       Array.prototype.forEach.call(body.querySelectorAll('[data-don-toggle]'), function(btn){
         btn.onclick = function(){
           var id = btn.getAttribute('data-don-toggle');
-          state.donationsExpandedIds[id] = !state.donationsExpandedIds[id];
-          if (!state.donationsExpandedIds[id] && String(state.donationsEditingId) === id) state.donationsEditingId = null;
-          renderDonationsTab(content);
+          var det = document.getElementById('dondetail' + id);
+          if (!det) return;
+          var willExpand = det.style.display === 'none';
+          det.style.display = willExpand ? '' : 'none';
+          btn.textContent = willExpand ? '▾' : '▸';
+          state.donationsExpandedIds[id] = willExpand;
+          if (!willExpand && String(state.donationsEditingId) === id) state.donationsEditingId = null;
         };
       });
 
