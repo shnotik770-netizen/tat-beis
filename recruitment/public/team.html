@@ -229,7 +229,12 @@
     statuses: [],
     ambassadors: [],
     campaignSettings: null,
-    busy: false
+    busy: false,
+    donationsFormOpen: false,
+    donationsExpandedIds: {},
+    donationsEditingId: null,
+    donationsFilterSite: 'all',
+    donationsFilterCollected: 'all'
   };
 
   function esc(s){
@@ -1797,6 +1802,167 @@
 
   // ===================== תרומות מזומן — מנהלים (רואים הכל) ושגרירים שהורשו (רואים רק את שלהם) =====================
   var DONATION_METHODS = ['מזומן', 'העברה בנקאית', "צ'ק", 'אשראי', 'אחר'];
+  var HEBREW_MONTHS = ['ניסן', 'אייר', 'סיון', 'תמוז', 'אב', 'אלול', 'תשרי', 'חשון', 'כסלו', 'טבת', 'שבט', 'אדר א', 'אדר ב'];
+
+  function donationBirthdayLabel(d){
+    if (d.donorBirthdayCalendar === 'gregorian') {
+      return d.donorBirthday ? new Date(d.donorBirthday).toLocaleDateString('he-IL') : '';
+    }
+    if (d.donorBirthdayHebrewDay && d.donorBirthdayHebrewMonth) {
+      return hebrewNumeral(d.donorBirthdayHebrewDay) + ' ' + d.donorBirthdayHebrewMonth;
+    }
+    return '';
+  }
+
+  function donationBirthdayFieldsHtml(pfx, calendar, hebDay, hebMonth, gregDate){
+    var isHeb = calendar !== 'gregorian';
+    var dayOpts = '<option value="">יום</option>';
+    for (var n = 1; n <= 30; n++) dayOpts += '<option value="' + n + '" ' + (Number(hebDay) === n ? 'selected' : '') + '>' + hebrewNumeral(n) + '</option>';
+    var monthOpts = '<option value="">חודש</option>' + HEBREW_MONTHS.map(function(m){ return '<option value="' + esc(m) + '" ' + (hebMonth === m ? 'selected' : '') + '>' + esc(m) + '</option>'; }).join('');
+    return '<div class="field"><label>יום הולדת — לוח שנה</label>' +
+        '<select id="' + pfx + 'bday-cal">' +
+          '<option value="hebrew" ' + (isHeb ? 'selected' : '') + '>עברי</option>' +
+          '<option value="gregorian" ' + (!isHeb ? 'selected' : '') + '>לועזי</option>' +
+        '</select>' +
+      '</div>' +
+      '<div id="' + pfx + 'bday-heb-wrap" class="field" style="' + (isHeb ? '' : 'display:none') + '">' +
+        '<label>יום הולדת (עברי)</label>' +
+        '<div style="display:flex;gap:6px">' +
+          '<select id="' + pfx + 'bday-day" style="flex:1">' + dayOpts + '</select>' +
+          '<select id="' + pfx + 'bday-month" style="flex:1.4">' + monthOpts + '</select>' +
+        '</div>' +
+      '</div>' +
+      '<div id="' + pfx + 'bday-greg-wrap" class="field" style="' + (isHeb ? 'display:none' : '') + '">' +
+        '<label>יום הולדת (לועזי)</label><input id="' + pfx + 'bday-date" type="date" value="' + (gregDate ? String(gregDate).slice(0, 10) : '') + '">' +
+      '</div>';
+  }
+
+  function wireBirthdayCalendarToggle(container, pfx){
+    var calSel = container.querySelector('#' + pfx + 'bday-cal');
+    if (!calSel) return;
+    calSel.onchange = function(){
+      var isHeb = calSel.value !== 'gregorian';
+      container.querySelector('#' + pfx + 'bday-heb-wrap').style.display = isHeb ? '' : 'none';
+      container.querySelector('#' + pfx + 'bday-greg-wrap').style.display = isHeb ? 'none' : '';
+    };
+  }
+
+  function readBirthdayFields(container, pfx){
+    var cal = container.querySelector('#' + pfx + 'bday-cal').value;
+    if (cal === 'gregorian') {
+      return { donorBirthdayCalendar: 'gregorian', donorBirthday: container.querySelector('#' + pfx + 'bday-date').value || null, donorBirthdayHebrewDay: null, donorBirthdayHebrewMonth: null };
+    }
+    var day = container.querySelector('#' + pfx + 'bday-day').value;
+    var month = container.querySelector('#' + pfx + 'bday-month').value;
+    return { donorBirthdayCalendar: 'hebrew', donorBirthdayHebrewDay: day ? Number(day) : null, donorBirthdayHebrewMonth: month || null, donorBirthday: null };
+  }
+
+  // שדות טופס משותפים להוספה ולעריכה — pfx הוא תחילית ייחודית לכל מופע (dn- להוספה, ed<id>- לעריכת שורה קיימת)
+  function donationFieldsHtml(pfx, isAdmin, ambsForPicker, existing){
+    var d = existing || {};
+    return (isAdmin ? ('<div class="field"><label>שיוך לשגריר</label><select id="' + pfx + 'amb"><option value="">אני (' + esc(state.me.name) + ')</option>' +
+        (ambsForPicker || []).filter(function(a){ return a.id !== state.me.id; }).map(function(a){ return '<option value="' + a.id + '" ' + (existing && existing.ambassador && String(existing.ambassador.id) === String(a.id) ? 'selected' : '') + '>' + esc(a.name) + '</option>'; }).join('') +
+      '</select></div>') : '') +
+      '<div class="field"><label>שם התורם *</label><input id="' + pfx + 'name" value="' + esc(d.donorName || '') + '"></div>' +
+      '<div class="field"><label>טלפון (לא חובה)</label><input id="' + pfx + 'phone" type="tel" value="' + esc(d.donorPhone || '') + '"></div>' +
+      '<div class="field"><label>מספר תעודת זהות (לצורך קבלה)</label><input id="' + pfx + 'idnum" value="' + esc(d.donorIdNumber || '') + '"></div>' +
+      '<div class="field"><label>אימייל</label><input id="' + pfx + 'email" type="email" value="' + esc(d.donorEmail || '') + '"></div>' +
+      donationBirthdayFieldsHtml(pfx, d.donorBirthdayCalendar || 'hebrew', d.donorBirthdayHebrewDay, d.donorBirthdayHebrewMonth, d.donorBirthday) +
+      '<div class="field"><label>סכום *</label><input id="' + pfx + 'amount" type="number" inputmode="decimal" min="0" step="0.01" value="' + (d.amount != null ? d.amount : '') + '"></div>' +
+      '<div class="field"><label>אופן תרומה</label><select id="' + pfx + 'method"><option value="">—</option>' +
+        DONATION_METHODS.map(function(m){ return '<option value="' + esc(m) + '" ' + (d.method === m ? 'selected' : '') + '>' + esc(m) + '</option>'; }).join('') +
+      '</select></div>' +
+      '<div class="field"><label>הערות</label><textarea id="' + pfx + 'notes" rows="2">' + esc(d.notes || '') + '</textarea></div>';
+  }
+
+  function readDonationFields(container, pfx, isAdmin){
+    var payload = {
+      donorName: container.querySelector('#' + pfx + 'name').value.trim(),
+      donorPhone: container.querySelector('#' + pfx + 'phone').value.trim(),
+      donorIdNumber: container.querySelector('#' + pfx + 'idnum').value.trim(),
+      donorEmail: container.querySelector('#' + pfx + 'email').value.trim(),
+      notes: container.querySelector('#' + pfx + 'notes').value.trim(),
+      amount: parseFloat(container.querySelector('#' + pfx + 'amount').value),
+      method: container.querySelector('#' + pfx + 'method').value
+    };
+    var bday = readBirthdayFields(container, pfx);
+    payload.donorBirthdayCalendar = bday.donorBirthdayCalendar;
+    payload.donorBirthday = bday.donorBirthday;
+    payload.donorBirthdayHebrewDay = bday.donorBirthdayHebrewDay;
+    payload.donorBirthdayHebrewMonth = bday.donorBirthdayHebrewMonth;
+    if (isAdmin) {
+      var ambSel = container.querySelector('#' + pfx + 'amb');
+      if (ambSel && ambSel.value) payload.ambassadorId = ambSel.value;
+    }
+    return payload;
+  }
+
+  // שורה אחת ברשימת התרומות — מכווצת לפרטים מינימליים (שם/סכום/תאריך), ומתרחבת רק בלחיצה על החץ
+  function donationRowHtml(d, isAdmin, ambs, admins){
+    var expanded = !!state.donationsExpandedIds[d.id];
+    var editing = String(state.donationsEditingId) === String(d.id);
+    var locked = !isAdmin && (d.collectedBy || d.enteredToSite);
+    var statusBadge = isAdmin ? (' ' + (d.collectedBy ? '✔' : '⏳') + (d.enteredToSite ? ' 🌐' : '')) : '';
+
+    var summary =
+      '<button class="link-btn" data-don-toggle="' + d.id + '" style="font-size:15px;line-height:1;padding:0 4px">' + (expanded ? '▾' : '▸') + '</button>' +
+      '<div style="flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">' +
+        '<span style="font-weight:700">' + esc(d.donorName) + '</span>' +
+        '<span style="color:var(--muted);font-size:12.5px">' + d.amount.toLocaleString('he-IL') + ' ₪</span>' +
+      '</div>' +
+      '<span style="font-size:13px;white-space:nowrap">' + statusBadge + '</span>' +
+      '<span style="color:var(--muted);font-size:11.5px;white-space:nowrap">' + (d.createdAt ? new Date(d.createdAt).toLocaleDateString('he-IL') : '') + '</span>';
+
+    var detail = '';
+    if (expanded && editing) {
+      var pfx = 'ed' + d.id + '-';
+      detail =
+        donationFieldsHtml(pfx, isAdmin, ambs, d) +
+        '<div id="' + pfx + 'msg"></div>' +
+        '<div style="display:flex;gap:10px;margin-top:6px">' +
+          '<button class="btn btn-gold btn-sm" data-don-save="' + d.id + '">💾 שמירה</button>' +
+          '<button class="btn btn-outline btn-sm" data-don-cancel-edit="' + d.id + '">ביטול</button>' +
+        '</div>';
+    } else if (expanded) {
+      var lines = [];
+      if (d.donorPhone) lines.push('טלפון: ' + esc(d.donorPhone));
+      if (d.donorIdNumber) lines.push('ת.ז: ' + esc(d.donorIdNumber));
+      if (d.donorEmail) lines.push('אימייל: ' + esc(d.donorEmail));
+      var bday = donationBirthdayLabel(d);
+      if (bday) lines.push('יום הולדת: ' + bday);
+      if (d.method) lines.push('אופן תרומה: ' + esc(d.method));
+      if (isAdmin) lines.push('שגריר: ' + esc(d.ambassador.name));
+      if (!isAdmin) {
+        lines.push('סטטוס: ' + (d.collectedBy ? ('✔ התקבל אצל ' + esc(d.collectedBy.name)) : '⏳ טרם נאסף'));
+        if (d.enteredToSite) lines.push('✔ הוכנס לאתר הקמפיין');
+      }
+      if (d.notes) lines.push('הערות: ' + esc(d.notes));
+
+      detail = '<div style="font-size:13px;line-height:2">' + (lines.length ? lines.join('<br>') : '<span class="hint">אין פרטים נוספים</span>') + '</div>';
+
+      if (isAdmin) {
+        detail += '<div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:10px;align-items:center">' +
+          '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px">התקבל אצל: <select data-don-collected="' + d.id + '">' +
+            '<option value="">⏳ טרם נאסף</option>' +
+            admins.map(function(a){ return '<option value="' + a.id + '" ' + (d.collectedBy && d.collectedBy.id === a.id ? 'selected' : '') + '>' + esc(a.id === state.me.id ? ('אני (' + a.name + ')') : a.name) + '</option>'; }).join('') +
+          '</select></label>' +
+          '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" data-don-site="' + d.id + '" ' + (d.enteredToSite ? 'checked' : '') + '> הוכנס לאתר הקמפיין</label>' +
+        '</div>';
+      }
+
+      detail += '<div style="display:flex;gap:14px;margin-top:10px;align-items:center;flex-wrap:wrap">' +
+        ((isAdmin || !locked)
+          ? '<button class="link-btn" data-don-edit="' + d.id + '">✏️ עריכה</button>'
+          : '<span class="hint">🔒 לא ניתן לערוך יותר — כבר ' + (d.collectedBy ? 'התקבל אצל מנהל' : 'הוכנס לאתר') + '</span>') +
+        '<button class="link-btn danger" data-don-del="' + d.id + '">מחיקה</button>' +
+      '</div>';
+    }
+
+    return '<div class="card" style="padding:9px 12px;margin-bottom:8px">' +
+      '<div style="display:flex;align-items:center;gap:6px">' + summary + '</div>' +
+      (detail ? '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">' + detail + '</div>' : '') +
+    '</div>';
+  }
 
   function renderDonationsTab(content){
     var isAdmin = !!state.me.isAdmin;
@@ -1808,67 +1974,126 @@
       isAdmin ? api('/ambassadors').catch(function(){ return null; }) : Promise.resolve(null)
     ]).then(function(res){
       var donations = res[0];
-      var ambs = res[1];
+      var ambs = res[1] || [];
+      var admins = ambs.filter(function(a){ return a.isAdmin; });
       var total = donations.reduce(function(sum, d){ return sum + d.amount; }, 0);
+      var pending = donations.filter(function(d){ return !d.collectedBy; });
+      var pendingSum = pending.reduce(function(sum, d){ return sum + d.amount; }, 0);
+
+      var filtered = donations.filter(function(d){
+        if (!isAdmin) return true;
+        if (state.donationsFilterSite === 'yes' && !d.enteredToSite) return false;
+        if (state.donationsFilterSite === 'no' && d.enteredToSite) return false;
+        if (state.donationsFilterCollected === 'yes' && !d.collectedBy) return false;
+        if (state.donationsFilterCollected === 'no' && d.collectedBy) return false;
+        return true;
+      });
 
       body.innerHTML =
         '<div class="hint" style="margin-bottom:12px">' + (isAdmin
-          ? 'כל תרומות המזומן שתועדו על ידי השגרירים, וכן תרומות שתועדו כאן ידנית.'
+          ? 'כל תרומות המזומן שתועדו על ידי השגרירים, וכן תרומות שתועדו כאן ידנית. "התקבל אצל" מסמן איזה מנהל בפועל קיבל את הכסף לידיים — כל עוד לא סומן, הכסף עדיין אצל השגריר שתיעד.'
           : 'תרומות מזומן שקיבלת ותיעדת. עניין כספי — הרשימה נשמרת רק אצלך ואצל המנהלים.') + '</div>' +
-        '<div style="font-weight:700;margin-bottom:14px">סה"כ: ' + total.toLocaleString('he-IL') + ' ₪ (' + donations.length + ')</div>' +
-        '<div class="sec-title">הוספת תרומה</div>' +
-        (isAdmin ? '<div class="field"><label>שיוך לשגריר</label><select id="dn-amb"><option value="">אני (' + esc(state.me.name) + ')</option>' +
-          (ambs || []).filter(function(a){ return a.id !== state.me.id; }).map(function(a){ return '<option value="' + a.id + '">' + esc(a.name) + '</option>'; }).join('') +
-          '</select></div>' : '') +
-        '<div class="field"><label>שם התורם *</label><input id="dn-name"></div>' +
-        '<div class="field"><label>מספר תעודת זהות (לצורך קבלה)</label><input id="dn-idnum"></div>' +
-        '<div class="field"><label>אימייל</label><input id="dn-email" type="email"></div>' +
-        '<div class="field"><label>תאריך יום הולדת</label><input id="dn-bday" type="date"></div>' +
-        '<div class="field"><label>סכום *</label><input id="dn-amount" type="number" inputmode="decimal" min="0" step="0.01"></div>' +
-        '<div class="field"><label>אופן תרומה</label><select id="dn-method"><option value="">—</option>' +
-          DONATION_METHODS.map(function(m){ return '<option value="' + esc(m) + '">' + esc(m) + '</option>'; }).join('') +
-        '</select></div>' +
-        '<div class="field"><label>הערות</label><textarea id="dn-notes" rows="2"></textarea></div>' +
-        '<div id="dn-msg"></div>' +
-        '<button class="btn btn-gold" id="dn-submit">➕ הוספת תרומה</button>' +
+        '<div style="font-weight:700;margin-bottom:4px">סה"כ: ' + total.toLocaleString('he-IL') + ' ₪ (' + donations.length + ')</div>' +
+        (isAdmin && pending.length ? '<div style="font-weight:700;color:var(--danger);margin-bottom:14px">⏳ טרם נאספו: ' + pendingSum.toLocaleString('he-IL') + ' ₪ (' + pending.length + ') — עדיין אצל השגרירים</div>' : '<div style="margin-bottom:14px"></div>') +
+        (isAdmin ? (
+          '<div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:14px">' +
+            '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px">הוכנס לאתר: <select id="dn-filter-site">' +
+              '<option value="all"' + (state.donationsFilterSite === 'all' ? ' selected' : '') + '>הכל</option>' +
+              '<option value="yes"' + (state.donationsFilterSite === 'yes' ? ' selected' : '') + '>רק שהוכנס</option>' +
+              '<option value="no"' + (state.donationsFilterSite === 'no' ? ' selected' : '') + '>רק שלא הוכנס</option>' +
+            '</select></label>' +
+            '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px">התקבל אצל מנהל: <select id="dn-filter-collected">' +
+              '<option value="all"' + (state.donationsFilterCollected === 'all' ? ' selected' : '') + '>הכל</option>' +
+              '<option value="yes"' + (state.donationsFilterCollected === 'yes' ? ' selected' : '') + '>רק שהתקבל</option>' +
+              '<option value="no"' + (state.donationsFilterCollected === 'no' ? ' selected' : '') + '>רק שטרם התקבל</option>' +
+            '</select></label>' +
+          '</div>'
+        ) : '') +
+        (!state.donationsFormOpen
+          ? '<button class="btn btn-gold btn-sm" id="dn-open" style="margin-bottom:14px">➕ הוספת תרומה</button>'
+          : ('<div class="sec-title">הוספת תרומה</div>' +
+              donationFieldsHtml('dn-', isAdmin, ambs, null) +
+              '<div id="dn-msg"></div>' +
+              '<div style="display:flex;gap:10px;margin-top:6px;margin-bottom:14px">' +
+                '<button class="btn btn-gold" id="dn-submit">➕ הוספת תרומה</button>' +
+                '<button class="btn btn-outline" id="dn-close">ביטול</button>' +
+              '</div>')
+        ) +
         '<hr class="divider">' +
-        '<table class="simple"><thead><tr><th>תורם</th><th>סכום</th><th>אופן</th>' + (isAdmin ? '<th>שגריר</th>' : '') + '<th>תאריך</th><th></th></tr></thead><tbody>' +
-        donations.map(function(d){
-          return '<tr><td>' + esc(d.donorName) + (d.notes ? '<div class="hint">' + esc(d.notes) + '</div>' : '') + '</td>' +
-            '<td>' + d.amount.toLocaleString('he-IL') + ' ₪</td>' +
-            '<td>' + esc(d.method || '—') + '</td>' +
-            (isAdmin ? '<td>' + esc(d.ambassador.name) + '</td>' : '') +
-            '<td>' + (d.createdAt ? new Date(d.createdAt).toLocaleDateString('he-IL') : '') + '</td>' +
-            '<td><button class="link-btn danger" data-don-del="' + d.id + '">מחיקה</button></td></tr>';
-        }).join('') + '</tbody></table>' +
-        (!donations.length ? '<div class="hint">עדיין לא תועדו תרומות.</div>' : '');
+        (filtered.length ? filtered.map(function(d){ return donationRowHtml(d, isAdmin, ambs, admins); }).join('') : '<div class="hint">אין תרומות להצגה.</div>');
 
-      body.querySelector('#dn-submit').onclick = function(){
-        var msg = body.querySelector('#dn-msg');
-        var name = body.querySelector('#dn-name').value.trim();
-        var amount = parseFloat(body.querySelector('#dn-amount').value);
-        if (!name){ msg.innerHTML = '<div class="err">יש להזין שם תורם</div>'; return; }
-        if (!amount || amount <= 0){ msg.innerHTML = '<div class="err">יש להזין סכום תקין</div>'; return; }
-        var payload = {
-          donorName: name,
-          donorIdNumber: body.querySelector('#dn-idnum').value.trim(),
-          donorEmail: body.querySelector('#dn-email').value.trim(),
-          donorBirthday: body.querySelector('#dn-bday').value || null,
-          notes: body.querySelector('#dn-notes').value.trim(),
-          amount: amount,
-          method: body.querySelector('#dn-method').value
+      if (state.donationsFormOpen) {
+        wireBirthdayCalendarToggle(body, 'dn-');
+        body.querySelector('#dn-close').onclick = function(){ state.donationsFormOpen = false; renderDonationsTab(content); };
+        body.querySelector('#dn-submit').onclick = function(){
+          var msg = body.querySelector('#dn-msg');
+          var payload = readDonationFields(body, 'dn-', isAdmin);
+          if (!payload.donorName){ msg.innerHTML = '<div class="err">יש להזין שם תורם</div>'; return; }
+          if (!payload.amount || payload.amount <= 0){ msg.innerHTML = '<div class="err">יש להזין סכום תקין</div>'; return; }
+          api('/donations', {method:'POST', body: JSON.stringify(payload)})
+            .then(function(){ state.donationsFormOpen = false; renderDonationsTab(content); })
+            .catch(function(e){ msg.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
         };
-        if (isAdmin && body.querySelector('#dn-amb').value) payload.ambassadorId = body.querySelector('#dn-amb').value;
-        api('/donations', {method:'POST', body: JSON.stringify(payload)})
-          .then(function(){ renderDonationsTab(content); })
-          .catch(function(e){ msg.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
-      };
+      } else {
+        body.querySelector('#dn-open').onclick = function(){ state.donationsFormOpen = true; renderDonationsTab(content); };
+      }
+
+      if (isAdmin) {
+        body.querySelector('#dn-filter-site').onchange = function(){ state.donationsFilterSite = this.value; renderDonationsTab(content); };
+        body.querySelector('#dn-filter-collected').onchange = function(){ state.donationsFilterCollected = this.value; renderDonationsTab(content); };
+      }
+
+      Array.prototype.forEach.call(body.querySelectorAll('[data-don-toggle]'), function(btn){
+        btn.onclick = function(){
+          var id = btn.getAttribute('data-don-toggle');
+          state.donationsExpandedIds[id] = !state.donationsExpandedIds[id];
+          if (!state.donationsExpandedIds[id] && String(state.donationsEditingId) === id) state.donationsEditingId = null;
+          renderDonationsTab(content);
+        };
+      });
+
+      Array.prototype.forEach.call(body.querySelectorAll('[data-don-edit]'), function(btn){
+        btn.onclick = function(){
+          state.donationsEditingId = btn.getAttribute('data-don-edit');
+          renderDonationsTab(content);
+        };
+      });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-don-cancel-edit]'), function(btn){
+        btn.onclick = function(){ state.donationsEditingId = null; renderDonationsTab(content); };
+      });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-don-save]'), function(btn){
+        var id = btn.getAttribute('data-don-save');
+        var pfx = 'ed' + id + '-';
+        wireBirthdayCalendarToggle(body, pfx);
+        btn.onclick = function(){
+          var msg = body.querySelector('#' + pfx + 'msg');
+          var payload = readDonationFields(body, pfx, isAdmin);
+          if (!payload.donorName){ msg.innerHTML = '<div class="err">יש להזין שם תורם</div>'; return; }
+          if (!payload.amount || payload.amount <= 0){ msg.innerHTML = '<div class="err">יש להזין סכום תקין</div>'; return; }
+          api('/donations/' + id, {method:'PATCH', body: JSON.stringify(payload)})
+            .then(function(){ state.donationsEditingId = null; renderDonationsTab(content); })
+            .catch(function(e){ msg.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
+        };
+      });
 
       Array.prototype.forEach.call(body.querySelectorAll('[data-don-del]'), function(btn){
         btn.onclick = function(){
           if (!confirm('למחוק תרומה זו?')) return;
           api('/donations/' + btn.getAttribute('data-don-del'), {method:'DELETE'})
             .then(function(){ renderDonationsTab(content); }).catch(function(e){ alert(e.message); });
+        };
+      });
+
+      Array.prototype.forEach.call(body.querySelectorAll('[data-don-collected]'), function(sel){
+        sel.onchange = function(){
+          api('/donations/' + sel.getAttribute('data-don-collected'), {method:'PATCH', body: JSON.stringify({collectedBy: sel.value || null})})
+            .then(function(){ renderDonationsTab(content); }).catch(function(e){ alert(e.message); renderDonationsTab(content); });
+        };
+      });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-don-site]'), function(cb){
+        cb.onchange = function(){
+          api('/donations/' + cb.getAttribute('data-don-site'), {method:'PATCH', body: JSON.stringify({enteredToSite: cb.checked})})
+            .then(function(){ renderDonationsTab(content); }).catch(function(e){ alert(e.message); renderDonationsTab(content); });
         };
       });
     }).catch(function(e){ body.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });

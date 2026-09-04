@@ -611,12 +611,17 @@ function requireDonationsAccess(req, res, next) {
 }
 
 const DONATION_SELECT = `
-  SELECT d.id, d.donor_name, d.donor_id_number, d.donor_email, d.donor_birthday, d.notes, d.amount, d.method, d.created_at,
+  SELECT d.id, d.donor_name, d.donor_id_number, d.donor_email, d.donor_phone,
+         d.donor_birthday, d.donor_birthday_calendar, d.donor_birthday_hebrew_day, d.donor_birthday_hebrew_month,
+         d.notes, d.amount, d.method, d.created_at,
+         d.collected_at, d.entered_to_site,
          amb.id AS ambassador_id, amb.name AS ambassador_name,
-         creator.id AS created_by_id, creator.name AS created_by_name
+         creator.id AS created_by_id, creator.name AS created_by_name,
+         collector.id AS collected_by_id, collector.name AS collected_by_name
   FROM donations d
   JOIN ambassadors amb ON amb.id = d.ambassador_id
   LEFT JOIN ambassadors creator ON creator.id = d.created_by
+  LEFT JOIN ambassadors collector ON collector.id = d.collected_by
 `;
 
 function shapeDonation(r) {
@@ -625,13 +630,20 @@ function shapeDonation(r) {
     donorName: r.donor_name,
     donorIdNumber: r.donor_id_number,
     donorEmail: r.donor_email,
+    donorPhone: r.donor_phone,
     donorBirthday: r.donor_birthday,
+    donorBirthdayCalendar: r.donor_birthday_calendar,
+    donorBirthdayHebrewDay: r.donor_birthday_hebrew_day,
+    donorBirthdayHebrewMonth: r.donor_birthday_hebrew_month,
     notes: r.notes,
     amount: Number(r.amount),
     method: r.method,
     createdAt: r.created_at,
     ambassador: { id: r.ambassador_id, name: r.ambassador_name },
-    createdBy: r.created_by_id ? { id: r.created_by_id, name: r.created_by_name } : null
+    createdBy: r.created_by_id ? { id: r.created_by_id, name: r.created_by_name } : null,
+    collectedBy: r.collected_by_id ? { id: r.collected_by_id, name: r.collected_by_name } : null,
+    collectedAt: r.collected_at,
+    enteredToSite: r.entered_to_site
   };
 }
 
@@ -646,7 +658,11 @@ router.get('/donations', requireDonationsAccess, ah(async (req, res) => {
 }));
 
 router.post('/donations', requireDonationsAccess, ah(async (req, res) => {
-  const { donorName, donorIdNumber, donorEmail, donorBirthday, notes, amount, method, ambassadorId } = req.body || {};
+  const {
+    donorName, donorIdNumber, donorEmail, donorPhone,
+    donorBirthday, donorBirthdayCalendar, donorBirthdayHebrewDay, donorBirthdayHebrewMonth,
+    notes, amount, method, ambassadorId
+  } = req.body || {};
   if (!donorName || !donorName.trim()) return res.status(400).json({ error: 'יש להזין שם תורם' });
   const amt = Number(amount);
   if (!amt || amt <= 0) return res.status(400).json({ error: 'יש להזין סכום תקין' });
@@ -655,22 +671,46 @@ router.post('/donations', requireDonationsAccess, ah(async (req, res) => {
     if (!req.ambassador.is_admin) return res.status(403).json({ error: 'רק מנהל יכול לתעד תרומה עבור שגריר אחר' });
     targetAmbassadorId = ambassadorId;
   }
+  const calendar = donorBirthdayCalendar === 'gregorian' ? 'gregorian' : 'hebrew';
   const { rows } = await pool.query(
-    `INSERT INTO donations (ambassador_id, donor_name, donor_id_number, donor_email, donor_birthday, notes, amount, method, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-    [targetAmbassadorId, donorName.trim(), donorIdNumber || null, donorEmail || null, donorBirthday || null, notes || null, amt, method || null, req.ambassador.id]
+    `INSERT INTO donations (
+       ambassador_id, donor_name, donor_id_number, donor_email, donor_phone,
+       donor_birthday, donor_birthday_calendar, donor_birthday_hebrew_day, donor_birthday_hebrew_month,
+       notes, amount, method, created_by
+     )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+    [
+      targetAmbassadorId, donorName.trim(), donorIdNumber || null, donorEmail || null, donorPhone || null,
+      calendar === 'gregorian' ? (donorBirthday || null) : null,
+      calendar,
+      calendar === 'hebrew' && donorBirthdayHebrewDay ? Number(donorBirthdayHebrewDay) : null,
+      calendar === 'hebrew' ? (donorBirthdayHebrewMonth || null) : null,
+      notes || null, amt, method || null, req.ambassador.id
+    ]
   );
   const { rows: full } = await pool.query(DONATION_SELECT + ' WHERE d.id = $1', [rows[0].id]);
   res.status(201).json(shapeDonation(full[0]));
 }));
 
 router.patch('/donations/:id', requireDonationsAccess, ah(async (req, res) => {
-  const { rows: existing } = await pool.query('SELECT ambassador_id FROM donations WHERE id = $1', [req.params.id]);
+  const { rows: existing } = await pool.query('SELECT ambassador_id, collected_by, entered_to_site FROM donations WHERE id = $1', [req.params.id]);
   if (!existing[0]) return res.status(404).json({ error: 'תרומה לא נמצאה' });
   if (!req.ambassador.is_admin && existing[0].ambassador_id !== req.ambassador.id) {
     return res.status(403).json({ error: 'אין הרשאה לערוך תרומה זו' });
   }
-  const { donorName, donorIdNumber, donorEmail, donorBirthday, notes, amount, method, ambassadorId } = req.body || {};
+  const {
+    donorName, donorIdNumber, donorEmail, donorPhone,
+    donorBirthday, donorBirthdayCalendar, donorBirthdayHebrewDay, donorBirthdayHebrewMonth,
+    notes, amount, method, ambassadorId, collectedBy, enteredToSite
+  } = req.body || {};
+  // ברגע שהתרומה סומנה כהתקבלה אצל מנהל או כמוזנת לאתר הקמפיין, השגריר שתיעד אותה כבר לא יכול
+  // לשנות את פרטי התרומה עצמה (רק מנהל כן) — כדי שמה שכבר נמסר/דווח לא ישתנה מתחת לרגליים
+  const editingContent = [donorName, donorIdNumber, donorEmail, donorPhone, donorBirthday,
+    donorBirthdayCalendar, donorBirthdayHebrewDay, donorBirthdayHebrewMonth, notes, amount, method]
+    .some((v) => v !== undefined);
+  if (editingContent && !req.ambassador.is_admin && (existing[0].collected_by || existing[0].entered_to_site)) {
+    return res.status(403).json({ error: 'לא ניתן לערוך יותר — התרומה כבר סומנה כהתקבלה אצל מנהל או כמוזנת לאתר הקמפיין. יש לפנות למנהל.' });
+  }
   const updates = [];
   const values = [];
   let i = 1;
@@ -680,7 +720,14 @@ router.patch('/donations/:id', requireDonationsAccess, ah(async (req, res) => {
   }
   if (donorIdNumber !== undefined) { updates.push(`donor_id_number = $${i++}`); values.push(donorIdNumber || null); }
   if (donorEmail !== undefined) { updates.push(`donor_email = $${i++}`); values.push(donorEmail || null); }
-  if (donorBirthday !== undefined) { updates.push(`donor_birthday = $${i++}`); values.push(donorBirthday || null); }
+  if (donorPhone !== undefined) { updates.push(`donor_phone = $${i++}`); values.push(donorPhone || null); }
+  if (donorBirthdayCalendar !== undefined || donorBirthday !== undefined || donorBirthdayHebrewDay !== undefined || donorBirthdayHebrewMonth !== undefined) {
+    const calendar = donorBirthdayCalendar === 'gregorian' ? 'gregorian' : 'hebrew';
+    updates.push(`donor_birthday_calendar = $${i++}`); values.push(calendar);
+    updates.push(`donor_birthday = $${i++}`); values.push(calendar === 'gregorian' ? (donorBirthday || null) : null);
+    updates.push(`donor_birthday_hebrew_day = $${i++}`); values.push(calendar === 'hebrew' && donorBirthdayHebrewDay ? Number(donorBirthdayHebrewDay) : null);
+    updates.push(`donor_birthday_hebrew_month = $${i++}`); values.push(calendar === 'hebrew' ? (donorBirthdayHebrewMonth || null) : null);
+  }
   if (notes !== undefined) { updates.push(`notes = $${i++}`); values.push(notes || null); }
   if (amount !== undefined) {
     const amt = Number(amount);
@@ -691,6 +738,17 @@ router.patch('/donations/:id', requireDonationsAccess, ah(async (req, res) => {
   if (ambassadorId !== undefined) {
     if (!req.ambassador.is_admin) return res.status(403).json({ error: 'רק מנהל יכול לשייך תרומה לשגריר אחר' });
     updates.push(`ambassador_id = $${i++}`); values.push(ambassadorId);
+  }
+  // מעקב איסוף — מי בפועל קיבל את הכסף לידיים (יכול להיות המנהל עצמו או מנהל אחר) והאם הוזן לאתר
+  // גיוס התרומות החיצוני; שני השדות פתוחים רק למנהל, גם כשמדובר בתרומה של עצמו
+  if (collectedBy !== undefined) {
+    if (!req.ambassador.is_admin) return res.status(403).json({ error: 'רק מנהל יכול לסמן מי אסף את התרומה' });
+    updates.push(`collected_by = $${i++}`); values.push(collectedBy || null);
+    updates.push(`collected_at = $${i++}`); values.push(collectedBy ? new Date() : null);
+  }
+  if (enteredToSite !== undefined) {
+    if (!req.ambassador.is_admin) return res.status(403).json({ error: 'רק מנהל יכול לסמן שהתרומה הוזנה לאתר' });
+    updates.push(`entered_to_site = $${i++}`); values.push(!!enteredToSite);
   }
   if (updates.length) {
     values.push(req.params.id);

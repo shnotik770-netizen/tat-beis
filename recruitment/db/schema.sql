@@ -179,14 +179,33 @@ CREATE TABLE IF NOT EXISTS donations (
   donor_name TEXT NOT NULL,
   donor_id_number TEXT,
   donor_email TEXT,
+  donor_phone TEXT,
+  -- יום הולדת: לוח עברי (יום 1–30 + שם חודש, בלי שנה) או לועזי (תאריך מלא ב-donor_birthday)
+  donor_birthday_calendar TEXT NOT NULL DEFAULT 'hebrew', -- 'hebrew' | 'gregorian'
   donor_birthday DATE,
+  donor_birthday_hebrew_day INTEGER,
+  donor_birthday_hebrew_month TEXT,
   notes TEXT,
   amount NUMERIC(12,2) NOT NULL,
   method TEXT,
   created_by INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL,
+  -- מעקב איסוף: הכסף מתחיל "אצל השגריר" (collected_by = NULL) עד שמנהל מסמן מי מהמנהלים בפועל קיבל
+  -- אותו לידיים (יכול להיות המנהל המסמן עצמו או מנהל אחר) — נפרד לגמרי מ"מי תיעד את הרשומה" (created_by)
+  collected_by INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL,
+  collected_at TIMESTAMPTZ,
+  -- האם התרומה גם הוזנה בפועל לאתר גיוס התרומות החיצוני של הקמפיין (מחוץ למערכת הזו) — סימון ידני של מנהל
+  entered_to_site BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_donations_ambassador ON donations(ambassador_id);
+-- מעקב איסוף לתרומות שכבר נוצרו לפני שהעמודות האלה נוספו
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS collected_by INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL;
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS collected_at TIMESTAMPTZ;
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS entered_to_site BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS donor_phone TEXT;
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS donor_birthday_calendar TEXT NOT NULL DEFAULT 'hebrew';
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS donor_birthday_hebrew_day INTEGER;
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS donor_birthday_hebrew_month TEXT;
 
 -- מעבר ממבנה קודם: עמודת motivational_quotes יחידה (שדרוג קצר-חיים) -> quotes_general, ומחיקתה
 DO $$
