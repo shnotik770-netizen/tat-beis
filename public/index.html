@@ -2571,8 +2571,28 @@ function savePay() {
   const d = {studentIds:sids, demandIds: demandIds, amounts:amounts, payer:v('p_payer'), date: dateISO, method:method};
   google.script.run.withSuccessHandler(function(r){
     if(r&&!r.ok){ toast(r.err,'err'); return; }
-    closeM(); toast('נרשם ✓','ok'); go('pay');
+    closeM(); toast('נרשם ✓','ok');
+    // אם התשלום יצר עודף (זכות) למשפחה — מציעים לרשום אותו כתרומה או להשאיר כזכות
+    loadAll(function(){ offerDonationIfCredit(sids[0]); });
   }).addPayment(d);
+}
+// אחרי רישום תשלום: אם נוצרה זכות (עודף) למשפחת התלמיד, שואל אם להמיר לתרומה. בכל מקרה מרענן את דף התשלומים.
+function offerDonationIfCredit(sid){
+  const finish = function(){ go('pay'); };
+  if(!sid){ finish(); return; }
+  const ids = clientFamilyIds(sid);
+  const credit = familyNetCredit(ids);
+  if(credit<=2){ finish(); return; }
+  const famName = D.students.filter(function(x){return x.id===ids[0];}).map(function(x){return x.firstName+' '+x.lastName;})[0]||'';
+  if(confirm('נוצר עודף (זכות) של ₪'+credit.toLocaleString()+' למשפחה'+(famName?' של '+famName:'')+'.\n\nלרשום את העודף כתרומה?\n(אפשר גם להשאיר כזכות ולהמיר בהמשך מדף החובות → זכויות)')){
+    google.script.run.withSuccessHandler(function(r){
+      if(r&&!r.ok){ toast(r.err,'err'); }
+      else toast('נרשמה תרומה ₪'+r.converted.toLocaleString()+' ✓','ok');
+      finish();
+    }).withFailureHandler(function(e){ toast(e.message,'err'); finish(); }).convertCreditToDonation(ids[0], credit, 'תרומה');
+  } else {
+    finish();
+  }
 }
 
 // ── Debts ──
@@ -2591,6 +2611,19 @@ function familyNetDebt(memberIds){
     paid += genCredit(sid);
   });
   const net = Math.round((demanded-paid)*100)/100;
+  return net>2 ? net : 0;
+}
+// זכות נטו של המשפחה (עודף תשלום): סה"כ ששולם פחות סה"כ שנדרש. עד ₪2 נחשב זניח ומחזיר 0.
+function familyNetCredit(memberIds){
+  let demanded = 0, paid = 0;
+  memberIds.forEach(function(sid){
+    D.demands.filter(function(d){ return d.studentIds.indexOf(sid)>-1; }).forEach(function(d){
+      demanded += d.amount;
+      paid += paidOnDem(sid, d.id);
+    });
+    paid += genCredit(sid);
+  });
+  const net = Math.round((paid-demanded)*100)/100;
   return net>2 ? net : 0;
 }
 function buildFamilyDebtGroups(list){
@@ -2679,6 +2712,7 @@ function renderDebts(filter, clsFilter) {
       '<select id="dbCls" onchange="renderDebtsResults()">'+clsOpts(clsFilter)+'</select>' +
       '<button class="btn '+(debtViewMode==='child'?'b-p':'b-h')+' b-sm" onclick="setDebtView(\'child\')">👤 לפי ילד</button>' +
       '<button class="btn '+(debtViewMode==='family'?'b-p':'b-h')+' b-sm" onclick="setDebtView(\'family\')">👨‍👩‍👧 לפי משפחות</button>' +
+      '<button class="btn b-h b-sm" onclick="openCreditsModal()">💝 זכויות</button>' +
       '<button class="btn b-h b-sm" onclick="openExportDebt()">📤 ייצוא</button>' +
     '</div>' +
     '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>' +
@@ -2752,6 +2786,48 @@ function openExportDebt(){
     '<div class="fg"><label>רשימת חובות</label><textarea readonly style="height:150px;font-family:monospace;font-size:11px">'+esc(listTxt)+'</textarea></div>' +
     '<div class="fg"><label>הודעות להורים</label><textarea readonly style="height:150px;font-family:monospace;font-size:11px">'+esc(msgTxt)+'</textarea></div>' +
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">סגור</button></div>');
+}
+
+// ── זכויות (עודפי תשלום) והמרתן לתרומה ──
+// מציג משפחות עם עודף תשלום (זכות). המרה לתרומה יוצרת דרישת "תרומה" בגובה הסכום — העודף הקיים
+// מכסה אותה והמשפחה חוזרת למאוזן. הסכום ששולם לא משתנה, רק מסווג.
+function openCreditsModal(isRefresh){
+  if(!isRefresh) window._creditsChanged = false; // איפוס רק בפתיחה ידנית, לא ברענון אחרי המרה
+  openM('<div class="loading">טוען זכויות...</div>');
+  google.script.run.withSuccessHandler(renderCreditsModal).withFailureHandler(function(e){ toast(e.message,'err'); closeM(); }).getCreditsReport();
+}
+function renderCreditsModal(list){
+  window._creditsData = list || [];
+  const rows = window._creditsData.map(function(c,i){
+    return '<div class="p-row" style="flex-wrap:wrap;gap:6px;align-items:center">' +
+      '<span style="flex:1;min-width:140px"><strong>'+esc(c.name)+'</strong> <span class="badge">'+esc(c.class||'—')+(c.institution?' · '+esc(c.institution):'')+'</span></span>' +
+      '<span class="badge am">זכות ₪'+c.credit.toLocaleString()+'</span>' +
+      '<input type="number" id="crAmt_'+i+'" value="'+c.credit+'" style="width:90px">' +
+      '<button class="btn b-g b-sm" onclick="doConvertCredit('+i+')">💝 המר לתרומה</button>' +
+    '</div>';
+  }).join('');
+  const total = window._creditsData.reduce(function(s,c){return s+c.credit;},0);
+  document.getElementById('modal').innerHTML =
+    '<div class="m-title">💝 זכויות (עודפי תשלום)</div>' +
+    '<div class="info">משפחות עם עודף תשלום (זכות). אפשר להמיר כל זכות — מלאה או חלקית — לתרומה: נרשמת דרישת "תרומה" בגובה הסכום, כך שהעודף מקוזז והמשפחה חוזרת למאוזן.</div>' +
+    (window._creditsData.length ?
+      '<div class="t2" style="margin-bottom:8px">סה"כ זכויות: ₪'+Math.round(total).toLocaleString()+' · '+window._creditsData.length+' משפחות</div>' +
+      '<div class="card" style="padding:0 12px;max-height:60vh;overflow-y:auto">'+rows+'</div>'
+      : '<div class="empty">אין זכויות פתוחות 🎉</div>') +
+    '<div class="m-foot"><button class="btn b-h" onclick="closeM();if(window._creditsChanged)go(\'debt\')">סגור</button></div>';
+}
+function doConvertCredit(i){
+  const c = window._creditsData[i];
+  if(!c) return;
+  const amt = parseFloat((document.getElementById('crAmt_'+i)||{}).value)||0;
+  if(amt<=0){ toast('סכום לא תקין','err'); return; }
+  if(!confirm('להמיר ₪'+amt.toLocaleString()+' מהזכות של '+c.name+' לתרומה?')) return;
+  google.script.run.withSuccessHandler(function(r){
+    if(r&&!r.ok){ toast(r.err,'err'); return; }
+    window._creditsChanged = true;
+    toast('הומרה תרומה ₪'+r.converted.toLocaleString()+' ✓','ok');
+    openCreditsModal(true); // רענון הרשימה מהשרת (שומר על דגל השינוי)
+  }).withFailureHandler(function(e){ toast(e.message,'err'); }).convertCreditToDonation(c.studentId, amt, 'תרומה');
 }
 
 // ── התאמת זיכויים לדרישות ──
