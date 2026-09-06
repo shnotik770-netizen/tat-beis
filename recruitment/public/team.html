@@ -1376,8 +1376,11 @@
       var greetName = sheet.querySelector('#e-greet').value.trim();
       var text = 'שלום' + (greetName ? ' ל' + greetName : '') + ',\nמצורף הזמנה אישית לערב הוקרה וצמיחה של מוסדות חב"ד עפולה:\n' + link;
       var url = 'https://wa.me/' + phoneForWhatsapp(contact.phone) + '?text=' + encodeURIComponent(text);
+      // כמו בכפתור "העתקת קישור" — קודם שואלים על עדכון הסטטוס, ורק אז עוברים לוואטסאפ.
+      // אם עושים את זה בסדר ההפוך, המעבר לאפליקציית הוואטסאפ (בעיקר בנייד) מוציא את הדף
+      // מהחזית ולעיתים מונע מההודעה הקופצת להופיע בכלל.
+      maybeProposeInviteSentStatus('עומדים לשלוח בוואטסאפ.');
       window.open(url, '_blank');
-      maybeProposeInviteSentStatus('נפתח וואטסאפ לשליחה.');
     };
     if (sheet.querySelector('#preview-link')) sheet.querySelector('#preview-link').onclick = function(){
       openInvitePreview(sheet.querySelector('#invite-link').value);
