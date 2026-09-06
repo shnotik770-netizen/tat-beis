@@ -703,6 +703,91 @@ async function applyReconciliation(studentIds) {
   return { ok: true, splitCount, coveredCount };
 }
 
+// ══════════════════════════════════════════════════════════════
+// זכויות (עודפי תשלום) והמרתן לתרומה
+// ══════════════════════════════════════════════════════════════
+// זכות = עודף תשלום ברמת המשפחה (סה"כ ששולם עבור המשפחה עולה על סה"כ שנדרש ממנה). המרה לתרומה
+// יוצרת דרישת "תרומה" בגובה הסכום המומר ומשייכת אותה לתלמיד — כך העודף הקיים מכסה אותה, נטו
+// המשפחה חוזר למאוזן, ונשמר תיעוד ברור שהעודף הפך לתרומה. הכסף ששולם לא משתנה — רק מסווג.
+function familyNetRaw(memberIds, demands, payments) {
+  let demanded = 0, paid = 0;
+  memberIds.forEach(sid => {
+    demands.filter(d => d.studentIds.includes(sid)).forEach(d => {
+      demanded += d.amount;
+      paid += logic.paidOnDemand(sid, d.id, payments);
+    });
+    paid += logic.generalCredit(sid, payments);
+  });
+  return Math.round((demanded - paid) * 100) / 100; // חיובי=חוב, שלילי=זכות
+}
+
+async function getCreditsReport() {
+  const [students, demands, payments] = await Promise.all([da.getAllStudents(), da.getAllDemands(), da.getAllPayments()]);
+  const seen = {};
+  const result = [];
+  students.forEach(st => {
+    if (seen[st.id]) return;
+    const famIds = logic.familyGroupIds(st.id, students);
+    famIds.forEach(id => { seen[id] = 1; });
+    const net = familyNetRaw(famIds, demands, payments);
+    const credit = net < -2 ? Math.round(-net * 100) / 100 : 0; // עד ₪2 זניח
+    if (!credit) return;
+    const fam = famIds.map(id => students.find(s => s.id === id)).filter(Boolean);
+    result.push({
+      studentId: fam[0].id,
+      name: fam.map(m => m.firstName + ' ' + m.lastName).join(', '),
+      class: [...new Set(fam.map(m => m.class).filter(Boolean))].join(', '),
+      institution: [...new Set(fam.map(m => m.institution).filter(Boolean))].join(', '),
+      credit
+    });
+  });
+  return result.sort((a, b) => b.credit - a.credit);
+}
+
+async function convertCreditToDonation(studentId, amount, note) {
+  const [students, demands, payments] = await Promise.all([da.getAllStudents(), da.getAllDemands(), da.getAllPayments()]);
+  const st = students.find(s => s.id === studentId);
+  if (!st) return { ok: false, err: 'תלמיד לא נמצא' };
+  const famIds = logic.familyGroupIds(studentId, students);
+  const net = familyNetRaw(famIds, demands, payments);
+  const credit = net < 0 ? Math.round(-net * 100) / 100 : 0;
+  const amt = Math.round((parseFloat(amount) || 0) * 100) / 100;
+  if (amt <= 0) return { ok: false, err: 'סכום לא תקין' };
+  if (amt > credit + 0.01) return { ok: false, err: 'הסכום גדול מהזכות הזמינה (₪' + credit + ')' };
+  const id = logic.uid('D');
+  const title = (note && String(note).trim()) ? String(note).trim() : 'תרומה';
+  await pool.query(
+    `INSERT INTO demands (id, title, amount, created_date, due_date, category_ids, student_ids, notes, is_family)
+     VALUES ($1,$2,$3, now(), $4,$5,$6,$7,$8)`,
+    [id, title, amt, null, [], [studentId], 'המרת זכות לתרומה', false]
+  );
+  return { ok: true, id, converted: amt };
+}
+
+// דוח תרומות: כל הדרישות שהן תרומה — אלה שנוצרו מהמרת זכות (notes='המרת זכות לתרומה') וגם
+// דרישות שכותרתן "תרומה" שנוצרו ידנית. מוחזרות עם שם התלמיד, כיתה, תאריך וסכום, ממוינות מהחדש לישן.
+async function getDonationsReport() {
+  const [students, demands] = await Promise.all([da.getAllStudents(), da.getAllDemands()]);
+  const nameById = {}; students.forEach(s => { nameById[s.id] = { name: s.firstName + ' ' + s.lastName, class: s.class, institution: s.institution || '' }; });
+  const rows = [];
+  demands.forEach(d => {
+    const isDonation = (d.notes === 'המרת זכות לתרומה') || (String(d.title || '').trim() === 'תרומה');
+    if (!isDonation) return;
+    (d.studentIds || []).forEach(sid => {
+      const info = nameById[sid] || { name: sid, class: '', institution: '' };
+      rows.push({
+        demandId: d.id, title: d.title, date: d.createdDate, amount: d.amount,
+        fromCredit: d.notes === 'המרת זכות לתרומה',
+        name: info.name, class: info.class, institution: info.institution
+      });
+    });
+  });
+  const dmyKeyL = dmy => { const p = String(dmy || '').split('/'); return p.length === 3 ? (p[2] + '-' + p[1].padStart(2, '0') + '-' + p[0].padStart(2, '0')) : '0000-00-00'; };
+  rows.sort((a, b) => dmyKeyL(a.date) < dmyKeyL(b.date) ? 1 : -1);
+  const total = Math.round(rows.reduce((s, r) => s + r.amount, 0) * 100) / 100;
+  return { rows, total, count: rows.length };
+}
+
 module.exports = {
   pingTest, getAllData,
   addStudent, updateStudent, deleteStudent, importStudentsFromPaste, backfillFamilyParentInfo,
@@ -711,5 +796,6 @@ module.exports = {
   addPayment, deletePayment, updatePayment,
   getStudentLedger, getFamilyLedger, getDashboard, getDebtExport,
   getPendingPayments, importPendingFromPaste, assignPendingPayment, deletePendingPayment,
-  getReconciliationReport, applyReconciliation
+  getReconciliationReport, applyReconciliation,
+  getCreditsReport, convertCreditToDonation, getDonationsReport
 };

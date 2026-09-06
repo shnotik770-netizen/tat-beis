@@ -2571,12 +2571,49 @@ function savePay() {
   const d = {studentIds:sids, demandIds: demandIds, amounts:amounts, payer:v('p_payer'), date: dateISO, method:method};
   google.script.run.withSuccessHandler(function(r){
     if(r&&!r.ok){ toast(r.err,'err'); return; }
-    closeM(); toast('נרשם ✓','ok'); go('pay');
+    closeM(); toast('נרשם ✓','ok');
+    // אם התשלום יצר עודף (זכות) למשפחה — מציעים לרשום אותו כתרומה או להשאיר כזכות
+    loadAll(function(){ offerDonationIfCredit(sids[0]); });
   }).addPayment(d);
+}
+// אחרי רישום תשלום: אם נוצרה זכות (עודף) למשפחת התלמיד, שואל אם להמיר לתרומה. בכל מקרה מרענן את דף התשלומים.
+function offerDonationIfCredit(sid){
+  const finish = function(){ go('pay'); };
+  if(!sid){ finish(); return; }
+  const ids = clientFamilyIds(sid);
+  const credit = familyNetCredit(ids);
+  if(credit<=2){ finish(); return; }
+  const famName = D.students.filter(function(x){return x.id===ids[0];}).map(function(x){return x.firstName+' '+x.lastName;})[0]||'';
+  if(confirm('נוצר עודף (זכות) של ₪'+credit.toLocaleString()+' למשפחה'+(famName?' של '+famName:'')+'.\n\nלרשום את העודף כתרומה?\n(אפשר גם להשאיר כזכות ולהמיר בהמשך מדף החובות → זכויות)')){
+    google.script.run.withSuccessHandler(function(r){
+      if(r&&!r.ok){ toast(r.err,'err'); }
+      else toast('נרשמה תרומה ₪'+r.converted.toLocaleString()+' ✓','ok');
+      finish();
+    }).withFailureHandler(function(e){ toast(e.message,'err'); finish(); }).convertCreditToDonation(ids[0], credit, 'תרומה');
+  } else {
+    finish();
+  }
 }
 
 // ── Debts ──
 let debtSortCol = 'oldest', debtSortDir = 'asc', debtViewMode = 'child';
+let debtTitleFilter = []; // כותרות דרישות פתוחות שסומנו לסינון (ריק = הכל)
+function toggleDebtTitleEl(el){
+  const t = el.getAttribute('data-title');
+  const i = debtTitleFilter.indexOf(t);
+  if(i>-1) debtTitleFilter.splice(i,1); else debtTitleFilter.push(t);
+  el.classList.toggle('on');
+  renderDebtsResults();
+}
+function clearDebtTitleFilter(){
+  debtTitleFilter = [];
+  renderDebts(); // בונה מחדש כדי לאפס את מצב הצ׳יפים
+}
+// האם לתלמיד/משפחה יש דרישה פתוחה מאחת הכותרות שסומנו (ריק = מציג הכל)
+function matchesDebtTitle(s){
+  if(!debtTitleFilter.length) return true;
+  return (s.unpaidDemands||[]).some(function(t){ return debtTitleFilter.indexOf(t)>-1; });
+}
 // חוב נטו ברמת המשפחה: סה"כ מה שנדרש מכל בני המשפחה מול סה"כ מה ששולם עבורם, לפני שמעגלים כל ילד
 // בנפרד ל-0. כך תשלום שלא פוצל בדיוק בין אחים (למשל תשלום כללי אחד שמכסה כמה ילדים) לא משאיר
 // "חוב" מדומה אצל מי מהם כל עוד המשפחה כולה שילמה את מה שנדרש ממנה.
@@ -2591,6 +2628,19 @@ function familyNetDebt(memberIds){
     paid += genCredit(sid);
   });
   const net = Math.round((demanded-paid)*100)/100;
+  return net>2 ? net : 0;
+}
+// זכות נטו של המשפחה (עודף תשלום): סה"כ ששולם פחות סה"כ שנדרש. עד ₪2 נחשב זניח ומחזיר 0.
+function familyNetCredit(memberIds){
+  let demanded = 0, paid = 0;
+  memberIds.forEach(function(sid){
+    D.demands.filter(function(d){ return d.studentIds.indexOf(sid)>-1; }).forEach(function(d){
+      demanded += d.amount;
+      paid += paidOnDem(sid, d.id);
+    });
+    paid += genCredit(sid);
+  });
+  const net = Math.round((paid-demanded)*100)/100;
   return net>2 ? net : 0;
 }
 function buildFamilyDebtGroups(list){
@@ -2637,6 +2687,22 @@ function setDebtSort(col){
   renderDebts();
 }
 function setDebtView(mode){ debtViewMode=mode; renderDebts(); }
+// בונה שורת טבלה לחייב (תלמיד או משפחה) — משותף ל-renderDebts ו-renderDebtsResults
+function debtRowHtml(s){
+  const phone = s.phone || s.dadPhone || s.momPhone;
+  const demBadges = (s.unpaidDemands||[]).slice(0,4).map(function(t){return '<span class="badge rd" style="margin-left:2px">'+t+'</span>';}).join('');
+  const name = s.isFamily ? s.name : (s.lastName+' '+s.firstName);
+  const nameHtml = '<span style="cursor:pointer" onclick=\''+(s.isFamily?'openFamilyLedger':'openLedger')+'("'+s.id+'")\'>'+name+'</span>';
+  const waMsg = s.isFamily ? null : buildWaMsg(s.id);
+  return '<tr>' +
+    '<td>'+nameHtml+(s.active!=='כן'&&!s.isFamily?' <span class="badge gy">לא פעיל</span>':'')+(s.isFamily?' <span class="badge am">👨‍👩‍👧 משפחה</span>':'')+'</td>' +
+    '<td><span class="badge">'+(classKey(s)||'—')+'</span></td>' +
+    '<td><strong style="color:var(--red)">₪'+s.debt.toLocaleString()+'</strong></td>' +
+    '<td class="t2">'+(s.oldestDate||'—')+'</td>' +
+    '<td>'+(demBadges||'<span class="t2">—</span>')+'</td>' +
+    '<td>'+(s.isFamily?'<button class="btn b-h b-sm" onclick=\'openFamilyLedger("'+s.id+'")\'>👨‍👩‍👧</button>':'<button class="btn b-h b-sm" onclick=\'openLedger("'+s.id+'")\'>📒</button>')+
+    (phone?' <a class="btn b-g b-sm" href="'+waLink(phone, waMsg||buildFamilyWaMsgQuick(s))+'" target="_blank">💬</a>':'')+'</td></tr>';
+}
 
 function renderDebts(filter, clsFilter) {
   if(filter===undefined) filter = (document.querySelector('#dbSearch')||{}).value || '';
@@ -2651,23 +2717,17 @@ function renderDebts(filter, clsFilter) {
   const totDebt = Math.round(all.reduce(function(s,x){return s+x.debt;},0));
 
   const displayList = debtViewMode==='family' ? buildFamilyDebtGroups(list) : list;
-  const sorted = sortDebtList(displayList);
+  const sorted = sortDebtList(displayList.filter(matchesDebtTitle));
 
-  const rows = sorted.map(function(s){
-    const phone = s.phone || s.dadPhone || s.momPhone;
-    const demBadges = (s.unpaidDemands||[]).slice(0,4).map(function(t){return '<span class="badge rd" style="margin-left:2px">'+t+'</span>';}).join('');
-    const name = s.isFamily ? s.name : (s.lastName+' '+s.firstName);
-    const nameHtml = '<span style="cursor:pointer" onclick=\''+(s.isFamily?'openFamilyLedger':'openLedger')+'("'+s.id+'")\'>'+name+'</span>';
-    const waMsg = s.isFamily ? null : buildWaMsg(s.id);
-    return '<tr>' +
-      '<td>'+nameHtml+(s.active!=='כן'&&!s.isFamily?' <span class="badge gy">לא פעיל</span>':'')+(s.isFamily?' <span class="badge am">👨‍👩‍👧 משפחה</span>':'')+'</td>' +
-      '<td><span class="badge">'+(classKey(s)||'—')+'</span></td>' +
-      '<td><strong style="color:var(--red)">₪'+s.debt.toLocaleString()+'</strong></td>' +
-      '<td class="t2">'+(s.oldestDate||'—')+'</td>' +
-      '<td>'+(demBadges||'<span class="t2">—</span>')+'</td>' +
-      '<td>'+(s.isFamily?'<button class="btn b-h b-sm" onclick=\'openFamilyLedger("'+s.id+'")\'>👨‍👩‍👧</button>':'<button class="btn b-h b-sm" onclick=\'openLedger("'+s.id+'")\'>📒</button>')+
-      (phone?' <a class="btn b-g b-sm" href="'+waLink(phone, waMsg||buildFamilyWaMsgQuick(s))+'" target="_blank">💬</a>':'')+'</td></tr>';
-  }).join('');
+  const rows = sorted.map(debtRowHtml).join('');
+  // צ׳יפים לסינון לפי כותרת דרישה פתוחה — מכל החייבים (לא רק המסוננים כרגע)
+  const allTitles = [...new Set(all.reduce(function(a,x){return a.concat(x.unpaidDemands||[]);},[]))].sort(function(a,b){return a.localeCompare(b,'he');});
+  const titleChips = allTitles.length ?
+    ('<div class="fg" style="margin-bottom:10px"><label>סינון לפי דרישה פתוחה' +
+      (debtTitleFilter.length?' <button class="btn b-h b-sm" onclick="clearDebtTitleFilter()">נקה סינון ✕</button>':'') +
+     '</label><div class="chips">' +
+      allTitles.map(function(t){ return '<span class="chip'+(debtTitleFilter.indexOf(t)>-1?' on':'')+'" data-title="'+esc(t)+'" onclick="toggleDebtTitleEl(this)">'+esc(t)+'</span>'; }).join('') +
+     '</div></div>') : '';
 
   document.getElementById('pg').innerHTML =
     '<div class="stats" style="margin-bottom:12px">' +
@@ -2679,8 +2739,10 @@ function renderDebts(filter, clsFilter) {
       '<select id="dbCls" onchange="renderDebtsResults()">'+clsOpts(clsFilter)+'</select>' +
       '<button class="btn '+(debtViewMode==='child'?'b-p':'b-h')+' b-sm" onclick="setDebtView(\'child\')">👤 לפי ילד</button>' +
       '<button class="btn '+(debtViewMode==='family'?'b-p':'b-h')+' b-sm" onclick="setDebtView(\'family\')">👨‍👩‍👧 לפי משפחות</button>' +
+      '<button class="btn b-h b-sm" onclick="openCreditsModal()">💝 זכויות</button>' +
       '<button class="btn b-h b-sm" onclick="openExportDebt()">📤 ייצוא</button>' +
     '</div>' +
+    titleChips +
     '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>' +
       '<th style="cursor:pointer" onclick="setDebtSort(\'name\')">שם'+sortIcon('name')+'</th>' +
       '<th style="cursor:pointer" onclick="setDebtSort(\'class\')">כיתה'+sortIcon('class')+'</th>' +
@@ -2699,23 +2761,9 @@ function renderDebtsResults(){
     return mn && mc;
   });
   const displayList = debtViewMode==='family' ? buildFamilyDebtGroups(list) : list;
-  const sorted = sortDebtList(displayList);
-  const rows = sorted.map(function(s){
-    const phone = s.phone || s.dadPhone || s.momPhone;
-    const demBadges = (s.unpaidDemands||[]).slice(0,4).map(function(t){return '<span class="badge rd" style="margin-left:2px">'+t+'</span>';}).join('');
-    const name = s.isFamily ? s.name : (s.lastName+' '+s.firstName);
-    const nameHtml = '<span style="cursor:pointer" onclick=\''+(s.isFamily?'openFamilyLedger':'openLedger')+'("'+s.id+'")\'>'+name+'</span>';
-    const waMsg = s.isFamily ? null : buildWaMsg(s.id);
-    return '<tr>' +
-      '<td>'+nameHtml+(s.active!=='כן'&&!s.isFamily?' <span class="badge gy">לא פעיל</span>':'')+(s.isFamily?' <span class="badge am">👨‍👩‍👧 משפחה</span>':'')+'</td>' +
-      '<td><span class="badge">'+(classKey(s)||'—')+'</span></td>' +
-      '<td><strong style="color:var(--red)">₪'+s.debt.toLocaleString()+'</strong></td>' +
-      '<td class="t2">'+(s.oldestDate||'—')+'</td>' +
-      '<td>'+(demBadges||'<span class="t2">—</span>')+'</td>' +
-      '<td>'+(s.isFamily?'<button class="btn b-h b-sm" onclick=\'openFamilyLedger("'+s.id+'")\'>👨‍👩‍👧</button>':'<button class="btn b-h b-sm" onclick=\'openLedger("'+s.id+'")\'>📒</button>')+
-      (phone?' <a class="btn b-g b-sm" href="'+waLink(phone, waMsg||buildFamilyWaMsgQuick(s))+'" target="_blank">💬</a>':'')+'</td></tr>';
-  }).join('');
-  document.getElementById('dbTbody').innerHTML = rows || '<tr><td colspan="6" class="empty">אין חובות פתוחים 🎉</td></tr>';
+  const sorted = sortDebtList(displayList.filter(matchesDebtTitle));
+  const rows = sorted.map(debtRowHtml).join('');
+  document.getElementById('dbTbody').innerHTML = rows || '<tr><td colspan="6" class="empty">אין חובות תואמים לסינון</td></tr>';
 }
 function buildFamilyWaMsgQuick(familyGroup){
   const L = [];
@@ -2754,15 +2802,83 @@ function openExportDebt(){
     '<div class="m-foot"><button class="btn b-h" onclick="closeM()">סגור</button></div>');
 }
 
+// ── זכויות (עודפי תשלום) והמרתן לתרומה ──
+// מציג משפחות עם עודף תשלום (זכות). המרה לתרומה יוצרת דרישת "תרומה" בגובה הסכום — העודף הקיים
+// מכסה אותה והמשפחה חוזרת למאוזן. הסכום ששולם לא משתנה, רק מסווג.
+function openCreditsModal(isRefresh){
+  if(!isRefresh) window._creditsChanged = false; // איפוס רק בפתיחה ידנית, לא ברענון אחרי המרה
+  openM('<div class="loading">טוען זכויות...</div>');
+  google.script.run.withSuccessHandler(renderCreditsModal).withFailureHandler(function(e){ toast(e.message,'err'); closeM(); }).getCreditsReport();
+}
+function renderCreditsModal(list){
+  window._creditsData = list || [];
+  const rows = window._creditsData.map(function(c,i){
+    return '<div class="p-row" style="flex-wrap:wrap;gap:6px;align-items:center">' +
+      '<span style="flex:1;min-width:140px"><strong>'+esc(c.name)+'</strong> <span class="badge">'+esc(c.class||'—')+(c.institution?' · '+esc(c.institution):'')+'</span></span>' +
+      '<span class="badge am">זכות ₪'+c.credit.toLocaleString()+'</span>' +
+      '<input type="number" id="crAmt_'+i+'" value="'+c.credit+'" style="width:90px">' +
+      '<button class="btn b-g b-sm" onclick="doConvertCredit('+i+')">💝 המר לתרומה</button>' +
+    '</div>';
+  }).join('');
+  const total = window._creditsData.reduce(function(s,c){return s+c.credit;},0);
+  document.getElementById('modal').innerHTML =
+    '<div class="m-title">💝 זכויות (עודפי תשלום)</div>' +
+    '<div class="info">משפחות עם עודף תשלום (זכות). אפשר להמיר כל זכות — מלאה או חלקית — לתרומה: נרשמת דרישת "תרומה" בגובה הסכום, כך שהעודף מקוזז והמשפחה חוזרת למאוזן.</div>' +
+    (window._creditsData.length ?
+      '<div class="t2" style="margin-bottom:8px">סה"כ זכויות: ₪'+Math.round(total).toLocaleString()+' · '+window._creditsData.length+' משפחות</div>' +
+      '<div class="card" style="padding:0 12px;max-height:60vh;overflow-y:auto">'+rows+'</div>'
+      : '<div class="empty">אין זכויות פתוחות 🎉</div>') +
+    '<div class="m-foot"><button class="btn b-h" onclick="closeM();if(window._creditsChanged)go(\'debt\')">סגור</button></div>';
+}
+function doConvertCredit(i){
+  const c = window._creditsData[i];
+  if(!c) return;
+  const amt = parseFloat((document.getElementById('crAmt_'+i)||{}).value)||0;
+  if(amt<=0){ toast('סכום לא תקין','err'); return; }
+  if(!confirm('להמיר ₪'+amt.toLocaleString()+' מהזכות של '+c.name+' לתרומה?')) return;
+  google.script.run.withSuccessHandler(function(r){
+    if(r&&!r.ok){ toast(r.err,'err'); return; }
+    window._creditsChanged = true;
+    toast('הומרה תרומה ₪'+r.converted.toLocaleString()+' ✓','ok');
+    openCreditsModal(true); // רענון הרשימה מהשרת (שומר על דגל השינוי)
+  }).withFailureHandler(function(e){ toast(e.message,'err'); }).convertCreditToDonation(c.studentId, amt, 'תרומה');
+}
+
 // ── התאמת זיכויים לדרישות ──
-// מסך גלובלי: מציג כל תלמיד שיש לו זיכוי כללי (תשלום ללא שיוך לדרישה) שאפשר לשייך לדרישות פתוחות,
-// ומראה בדיוק אילו דרישות ייסגרו. לחיצה על "שייך את המסומנים" מפצלת (בשרת) את התשלום הכללי
-// לרשומות פר-דרישה — סה"כ ששולם לא משתנה, רק מסווג מחדש.
+// מסך גלובלי עם שתי לשוניות (בסרגל העליון): "התאמת זיכויים" (שיוך זיכוי כללי לדרישות פתוחות)
+// ו-"דוח תרומות" — שתיהן נפתחות בתוך הדף עצמו (לא בחלון קופץ). מציג כל תלמיד שיש לו זיכוי כללי
+// (תשלום ללא שיוך לדרישה) שאפשר לשייך לדרישות פתוחות, ומראה אילו דרישות ייסגרו.
+function reconTabBar(active){
+  return '<button class="btn '+(active==='recon'?'b-p':'b-h')+' b-sm" onclick="renderRecon()">🔍 מצא זיכויים חדשים</button> ' +
+    '<button class="btn '+(active==='don'?'b-p':'b-h')+' b-sm" onclick="renderDonationsInline()">📜 דוח תרומות</button>';
+}
 function renderRecon(){
-  document.getElementById('tbAct').innerHTML = '';
+  document.getElementById('tbAct').innerHTML = reconTabBar('recon');
   const box = document.getElementById('pg');
   box.innerHTML = '<div class="loading">בודק זיכויים מול דרישות פתוחות...</div>';
   google.script.run.withSuccessHandler(renderReconResults).withFailureHandler(function(e){ box.innerHTML='<div class="card">שגיאה: '+esc(e.message)+'</div>'; }).getReconciliationReport();
+}
+// דוח תרומות — מוצג בתוך מסך "התאמת זיכויים" עצמו (לשונית), לא בחלון קופץ
+function renderDonationsInline(){
+  document.getElementById('tbAct').innerHTML = reconTabBar('don');
+  const box = document.getElementById('pg');
+  box.innerHTML = '<div class="loading">טוען דוח תרומות...</div>';
+  google.script.run.withSuccessHandler(function(data){
+    data = data || {rows:[], total:0, count:0};
+    const rows = data.rows.map(function(r){
+      return '<tr><td>'+esc(r.date||'—')+'</td><td>'+esc(r.name)+'</td><td><span class="badge">'+esc(r.class||'—')+'</span></td><td>'+esc(r.institution||'—')+'</td><td><strong>₪'+r.amount.toLocaleString()+'</strong>'+(r.fromCredit?' <span class="badge am" title="נוצר מהמרת זכות">מזכות</span>':'')+'</td></tr>';
+    }).join('');
+    const tsv = 'תאריך\tשם\tכיתה\tמוסד\tסכום\n' + data.rows.map(function(r){ return [r.date,r.name,r.class,r.institution,r.amount].join('\t'); }).join('\n');
+    box.innerHTML =
+      '<div class="stats" style="margin-bottom:12px">' +
+        '<div class="stat gr"><div class="stat-l">מספר תרומות</div><div class="stat-v">'+data.count+'</div></div>' +
+        '<div class="stat gr"><div class="stat-l">סה"כ תרומות</div><div class="stat-v">₪'+Math.round(data.total).toLocaleString()+'</div></div>' +
+      '</div>' +
+      (data.count ?
+        '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:460px"><thead><tr><th>תאריך</th><th>שם</th><th>כיתה</th><th>מוסד</th><th>סכום</th></tr></thead><tbody>'+rows+'</tbody></table></div>' +
+        '<div class="fg" style="margin-top:10px"><label>העתקה לאקסל/Sheets</label><textarea readonly style="height:90px;font-family:monospace;font-size:11px" onclick="this.select()">'+esc(tsv)+'</textarea></div>'
+        : '<div class="card"><div class="empty">עדיין אין תרומות רשומות</div></div>');
+  }).withFailureHandler(function(e){ box.innerHTML='<div class="card">שגיאה: '+esc(e.message)+'</div>'; }).getDonationsReport();
 }
 function renderReconResults(list){
   window._reconData = list || [];
