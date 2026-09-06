@@ -1333,8 +1333,7 @@
       if (greetEmpty && !confirm('לא הוזן שם לפנייה בהזמנה. מומלץ להזין שם מדוייק ולצפות בתצוגה מקדימה לפני השליחה.\n\nלשלוח בוואטסאפ בכל זאת?')) return;
       var link = sheet.querySelector('#invite-link').value;
       var greetName = sheet.querySelector('#e-greet').value.trim();
-      var eventName = (state.campaignSettings && state.campaignSettings.eventName) || 'ערב שותפות';
-      var text = 'שלום' + (greetName ? ' ' + greetName : '') + ',\nהוזמנת ל' + eventName + ' — לאישור הגעה ולפרטים:\n' + link;
+      var text = 'שלום' + (greetName ? ' ל' + greetName : '') + ',\nמצורף הזמנה אישית לערב הוקרה וצמיחה של מוסדות חב"ד עפולה:\n' + link;
       var url = 'https://wa.me/' + phoneForWhatsapp(contact.phone) + '?text=' + encodeURIComponent(text);
       window.open(url, '_blank');
       maybeProposeInviteSentStatus('נפתח וואטסאפ לשליחה.');
