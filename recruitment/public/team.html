@@ -1623,6 +1623,8 @@
         .filter(function(r){ return r.value > 0; }).sort(function(a, b){ return b.value - a.value; });
       var registered = ambStats.map(function(a){ return {label:a.name, value:a.total}; })
         .filter(function(r){ return r.value > 0; }).sort(function(a, b){ return b.value - a.value; });
+      var contacted = ambStats.map(function(a){ return {label:a.name, value:a.contactedCount}; })
+        .filter(function(r){ return r.value > 0; }).sort(function(a, b){ return b.value - a.value; });
       var leaderboard = ambStats.slice().sort(function(a, b){
         return (b.byStatus['מגיע לאירוע'] || 0) - (a.byStatus['מגיע לאירוע'] || 0);
       });
@@ -1658,6 +1660,10 @@
         (sectionOn('statsChartRegisteredEnabled') ?
           '<div class="sec-title" style="margin-top:18px">מי שייך הכי הרבה אנשי קשר אליו/ה</div>' +
           renderBarChart(registered, 'var(--info)') : '') +
+
+        (sectionOn('statsChartContactedEnabled') ?
+          '<div class="sec-title" style="margin-top:18px">מי יצר קשר עם הכי הרבה אנשים שונים</div>' +
+          renderBarChart(contacted, 'var(--success)') : '') +
 
         (sectionOn('statsChartEffortEnabled') ?
           '<div class="sec-title" style="margin-top:18px">מי הכי משקיע (מספר עדכוני סטטוס)</div>' +
@@ -2182,6 +2188,7 @@
           ['cs-stats-leader', 'statsLeaderEnabled', 'כרטיס המוביל/ה ומשפטי עידוד'],
           ['cs-stats-arriving', 'statsChartArrivingEnabled', 'גרף "מי הביא הכי הרבה אנשים למגיע לאירוע"'],
           ['cs-stats-registered', 'statsChartRegisteredEnabled', 'גרף "מי שייך הכי הרבה אנשי קשר אליו/ה"'],
+          ['cs-stats-contacted', 'statsChartContactedEnabled', 'גרף "מי יצר קשר עם הכי הרבה אנשים שונים"'],
           ['cs-stats-effort', 'statsChartEffortEnabled', 'גרף "מי הכי משקיע"'],
           ['cs-stats-timeline', 'statsTimelineEnabled', 'ציר הזמן של קצב ההתקדמות'],
           ['cs-stats-leaderboard', 'statsLeaderboardEnabled', 'לוח השגרירים המלא']
@@ -2305,6 +2312,7 @@
           statsLeaderEnabled: body.querySelector('#cs-stats-leader').checked,
           statsChartArrivingEnabled: body.querySelector('#cs-stats-arriving').checked,
           statsChartRegisteredEnabled: body.querySelector('#cs-stats-registered').checked,
+          statsChartContactedEnabled: body.querySelector('#cs-stats-contacted').checked,
           statsChartEffortEnabled: body.querySelector('#cs-stats-effort').checked,
           statsTimelineEnabled: body.querySelector('#cs-stats-timeline').checked,
           statsLeaderboardEnabled: body.querySelector('#cs-stats-leaderboard').checked

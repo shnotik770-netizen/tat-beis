@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS campaign_settings (
   stats_leader_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   stats_chart_arriving_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   stats_chart_registered_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  stats_chart_contacted_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   stats_chart_effort_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   stats_timeline_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   stats_leaderboard_enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -176,6 +177,7 @@ ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS google_sheet_share_email 
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS google_sheet_last_synced_at TIMESTAMPTZ;
 ALTER TABLE ambassadors ADD COLUMN IF NOT EXISTS can_enter_donations BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS candidates_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS stats_chart_contacted_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- תרומות מזומן שנאספו על ידי שגרירים (או ידנית ע"י מנהל, גם עבור שגריר אחר) — לא קשור לרשימת אנשי הקשר
 CREATE TABLE IF NOT EXISTS donations (

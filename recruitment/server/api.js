@@ -824,7 +824,8 @@ router.get('/campaign-settings', ah(async (req, res) => {
            invite_brand_text, invite_message_text, invite_footer_text,
            quotes_general, quotes_partners, quotes_participants,
            stats_tiles_enabled, stats_leader_enabled, stats_chart_arriving_enabled,
-           stats_chart_registered_enabled, stats_chart_effort_enabled, stats_timeline_enabled, stats_leaderboard_enabled,
+           stats_chart_registered_enabled, stats_chart_contacted_enabled, stats_chart_effort_enabled,
+           stats_timeline_enabled, stats_leaderboard_enabled,
            google_sheet_id, google_sheet_share_email, google_sheet_last_synced_at,
            (logo_image IS NOT NULL) AS has_logo, (hero_image IS NOT NULL) AS has_hero,
            (shared_login_pin_hash IS NOT NULL) AS has_shared_pin
@@ -852,6 +853,7 @@ router.get('/campaign-settings', ah(async (req, res) => {
     statsLeaderEnabled: s.stats_leader_enabled !== false,
     statsChartArrivingEnabled: s.stats_chart_arriving_enabled !== false,
     statsChartRegisteredEnabled: s.stats_chart_registered_enabled !== false,
+    statsChartContactedEnabled: s.stats_chart_contacted_enabled !== false,
     statsChartEffortEnabled: s.stats_chart_effort_enabled !== false,
     statsTimelineEnabled: s.stats_timeline_enabled !== false,
     statsLeaderboardEnabled: s.stats_leaderboard_enabled !== false,
@@ -874,7 +876,7 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
     inviteBrandText, inviteMessageText, inviteFooterText,
     quotesGeneral, quotesPartners, quotesParticipants,
     statsTilesEnabled, statsLeaderEnabled, statsChartArrivingEnabled,
-    statsChartRegisteredEnabled, statsChartEffortEnabled, statsTimelineEnabled, statsLeaderboardEnabled,
+    statsChartRegisteredEnabled, statsChartContactedEnabled, statsChartEffortEnabled, statsTimelineEnabled, statsLeaderboardEnabled,
     googleSheetShareEmail
   } = req.body || {};
   const updates = [];
@@ -908,12 +910,13 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
   const statsToggleFields = {
     statsTilesEnabled: 'stats_tiles_enabled', statsLeaderEnabled: 'stats_leader_enabled',
     statsChartArrivingEnabled: 'stats_chart_arriving_enabled', statsChartRegisteredEnabled: 'stats_chart_registered_enabled',
+    statsChartContactedEnabled: 'stats_chart_contacted_enabled',
     statsChartEffortEnabled: 'stats_chart_effort_enabled', statsTimelineEnabled: 'stats_timeline_enabled',
     statsLeaderboardEnabled: 'stats_leaderboard_enabled'
   };
   const statsToggleValues = {
     statsTilesEnabled, statsLeaderEnabled, statsChartArrivingEnabled,
-    statsChartRegisteredEnabled, statsChartEffortEnabled, statsTimelineEnabled, statsLeaderboardEnabled
+    statsChartRegisteredEnabled, statsChartContactedEnabled, statsChartEffortEnabled, statsTimelineEnabled, statsLeaderboardEnabled
   };
   for (const [key, column] of Object.entries(statsToggleFields)) {
     if (statsToggleValues[key] === undefined) continue;
@@ -1004,13 +1007,16 @@ router.get('/stats/ambassadors', requireAuth, ah(async (req, res) => {
     WHERE changed_by IS NOT NULL
     GROUP BY changed_by
   `);
-  const byAmb = new Map(ambs.map(a => [a.id, { id: a.id, name: a.name, total: 0, byStatus: {}, updatesCount: 0 }]));
+  const byAmb = new Map(ambs.map(a => [a.id, { id: a.id, name: a.name, total: 0, contactedCount: 0, byStatus: {}, updatesCount: 0 }]));
   for (const row of statusCounts) {
     const entry = byAmb.get(row.ambassador_id);
     if (!entry) continue;
     const key = row.status || 'טרם נוצר קשר';
     entry.byStatus[key] = (entry.byStatus[key] || 0) + row.cnt;
     entry.total += row.cnt;
+    // "יצר קשר בפועל" = יש לאיש הקשר סטטוס כלשהו (גם "שיחה ראשונית") — להבדיל מ"total"
+    // שסופר גם אנשי קשר משויכים שעדיין לא נוצר איתם קשר בכלל (סטטוס ריק)
+    if (row.status) entry.contactedCount += row.cnt;
   }
   for (const row of updateCounts) {
     const entry = byAmb.get(row.ambassador_id);
