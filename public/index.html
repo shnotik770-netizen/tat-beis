@@ -2844,42 +2844,41 @@ function doConvertCredit(i){
   }).withFailureHandler(function(e){ toast(e.message,'err'); }).convertCreditToDonation(c.studentId, amt, 'תרומה');
 }
 
-// ── דוח תרומות ──
-function openDonationsReport(){
-  openM('<div class="loading">טוען דוח תרומות...</div>');
-  google.script.run.withSuccessHandler(renderDonationsReport).withFailureHandler(function(e){ toast(e.message,'err'); closeM(); }).getDonationsReport();
-}
-function renderDonationsReport(data){
-  data = data || {rows:[], total:0, count:0};
-  const rows = data.rows.map(function(r){
-    return '<tr><td>'+esc(r.date||'—')+'</td><td>'+esc(r.name)+'</td><td><span class="badge">'+esc(r.class||'—')+'</span></td><td>'+esc(r.institution||'—')+'</td><td><strong>₪'+r.amount.toLocaleString()+'</strong>'+(r.fromCredit?' <span class="badge am" title="נוצר מהמרת זכות">מזכות</span>':'')+'</td></tr>';
-  }).join('');
-  // טקסט להעתקה/הדבקה לאקסל
-  const tsv = 'תאריך\tשם\tכיתה\tמוסד\tסכום\n' + data.rows.map(function(r){ return [r.date,r.name,r.class,r.institution,r.amount].join('\t'); }).join('\n');
-  document.getElementById('modal').innerHTML =
-    '<div class="m-title">📜 דוח תרומות</div>' +
-    '<div class="stats" style="margin-bottom:12px">' +
-      '<div class="stat gr"><div class="stat-l">מספר תרומות</div><div class="stat-v">'+data.count+'</div></div>' +
-      '<div class="stat gr"><div class="stat-l">סה"כ תרומות</div><div class="stat-v">₪'+Math.round(data.total).toLocaleString()+'</div></div>' +
-    '</div>' +
-    (data.count ?
-      '<div class="card" style="padding:0;overflow-x:auto;max-height:55vh;overflow-y:auto"><table style="min-width:460px"><thead><tr><th>תאריך</th><th>שם</th><th>כיתה</th><th>מוסד</th><th>סכום</th></tr></thead><tbody>'+rows+'</tbody></table></div>' +
-      '<div class="fg" style="margin-top:10px"><label>העתקה לאקסל/Sheets</label><textarea readonly style="height:90px;font-family:monospace;font-size:11px" onclick="this.select()">'+esc(tsv)+'</textarea></div>'
-      : '<div class="empty">עדיין אין תרומות רשומות</div>') +
-    '<div class="m-foot"><button class="btn b-h" onclick="closeM()">סגור</button></div>';
-}
-
 // ── התאמת זיכויים לדרישות ──
-// מסך גלובלי: מציג כל תלמיד שיש לו זיכוי כללי (תשלום ללא שיוך לדרישה) שאפשר לשייך לדרישות פתוחות,
-// ומראה בדיוק אילו דרישות ייסגרו. לחיצה על "שייך את המסומנים" מפצלת (בשרת) את התשלום הכללי
-// לרשומות פר-דרישה — סה"כ ששולם לא משתנה, רק מסווג מחדש.
+// מסך גלובלי עם שתי לשוניות (בסרגל העליון): "התאמת זיכויים" (שיוך זיכוי כללי לדרישות פתוחות)
+// ו-"דוח תרומות" — שתיהן נפתחות בתוך הדף עצמו (לא בחלון קופץ). מציג כל תלמיד שיש לו זיכוי כללי
+// (תשלום ללא שיוך לדרישה) שאפשר לשייך לדרישות פתוחות, ומראה אילו דרישות ייסגרו.
+function reconTabBar(active){
+  return '<button class="btn '+(active==='recon'?'b-p':'b-h')+' b-sm" onclick="renderRecon()">🔍 מצא זיכויים חדשים</button> ' +
+    '<button class="btn '+(active==='don'?'b-p':'b-h')+' b-sm" onclick="renderDonationsInline()">📜 דוח תרומות</button>';
+}
 function renderRecon(){
-  document.getElementById('tbAct').innerHTML =
-    '<button class="btn b-h b-sm" onclick="renderRecon()">🔍 מצא זיכויים חדשים</button> ' +
-    '<button class="btn b-h b-sm" onclick="openDonationsReport()">📜 דוח תרומות</button>';
+  document.getElementById('tbAct').innerHTML = reconTabBar('recon');
   const box = document.getElementById('pg');
   box.innerHTML = '<div class="loading">בודק זיכויים מול דרישות פתוחות...</div>';
   google.script.run.withSuccessHandler(renderReconResults).withFailureHandler(function(e){ box.innerHTML='<div class="card">שגיאה: '+esc(e.message)+'</div>'; }).getReconciliationReport();
+}
+// דוח תרומות — מוצג בתוך מסך "התאמת זיכויים" עצמו (לשונית), לא בחלון קופץ
+function renderDonationsInline(){
+  document.getElementById('tbAct').innerHTML = reconTabBar('don');
+  const box = document.getElementById('pg');
+  box.innerHTML = '<div class="loading">טוען דוח תרומות...</div>';
+  google.script.run.withSuccessHandler(function(data){
+    data = data || {rows:[], total:0, count:0};
+    const rows = data.rows.map(function(r){
+      return '<tr><td>'+esc(r.date||'—')+'</td><td>'+esc(r.name)+'</td><td><span class="badge">'+esc(r.class||'—')+'</span></td><td>'+esc(r.institution||'—')+'</td><td><strong>₪'+r.amount.toLocaleString()+'</strong>'+(r.fromCredit?' <span class="badge am" title="נוצר מהמרת זכות">מזכות</span>':'')+'</td></tr>';
+    }).join('');
+    const tsv = 'תאריך\tשם\tכיתה\tמוסד\tסכום\n' + data.rows.map(function(r){ return [r.date,r.name,r.class,r.institution,r.amount].join('\t'); }).join('\n');
+    box.innerHTML =
+      '<div class="stats" style="margin-bottom:12px">' +
+        '<div class="stat gr"><div class="stat-l">מספר תרומות</div><div class="stat-v">'+data.count+'</div></div>' +
+        '<div class="stat gr"><div class="stat-l">סה"כ תרומות</div><div class="stat-v">₪'+Math.round(data.total).toLocaleString()+'</div></div>' +
+      '</div>' +
+      (data.count ?
+        '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:460px"><thead><tr><th>תאריך</th><th>שם</th><th>כיתה</th><th>מוסד</th><th>סכום</th></tr></thead><tbody>'+rows+'</tbody></table></div>' +
+        '<div class="fg" style="margin-top:10px"><label>העתקה לאקסל/Sheets</label><textarea readonly style="height:90px;font-family:monospace;font-size:11px" onclick="this.select()">'+esc(tsv)+'</textarea></div>'
+        : '<div class="card"><div class="empty">עדיין אין תרומות רשומות</div></div>');
+  }).withFailureHandler(function(e){ box.innerHTML='<div class="card">שגיאה: '+esc(e.message)+'</div>'; }).getDonationsReport();
 }
 function renderReconResults(list){
   window._reconData = list || [];
