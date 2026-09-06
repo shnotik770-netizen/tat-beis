@@ -27,7 +27,7 @@
   .topbar-logo{height:40px;width:auto;border-radius:8px;background:#fff;padding:3px;flex-shrink:0;object-fit:contain}
   .topbar h1{font-size:16px;margin:0;font-weight:700;line-height:1.3}
   .topbar .sub{font-size:12px;opacity:.75;margin-top:2px}
-  .topbar .sub-date{font-size:10px;opacity:.6;margin-top:1px}
+  .topbar .sub-date{font-size:10px;color:rgba(255,255,255,.6);margin-top:1px}
   .topbar .me{display:flex;align-items:center;gap:8px}
   .topbar .me button{background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:20px;
     padding:6px 12px;font-size:13px}
@@ -313,7 +313,7 @@
       return 'עוד ' + (h === 1 ? 'שעה' : h + ' שעות') + ' לאירוע!';
     }
     var d = Math.ceil(hoursLeft / 24);
-    return '<span style="color:var(--gold);font-weight:700;opacity:1">עוד ' + (d === 1 ? 'יום' : d + ' ימים') + ' לאירוע</span>';
+    return '<span style="color:var(--gold-light);font-weight:800;font-size:12px">עוד ' + (d === 1 ? 'יום' : d + ' ימים') + ' לאירוע</span>';
   }
 
   function fmtDate(iso){
