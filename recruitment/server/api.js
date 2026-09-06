@@ -1,6 +1,6 @@
 const express = require('express');
 const ExcelJS = require('exceljs');
-const { pool } = require('./db');
+const { pool, generateUniqueShortCode } = require('./db');
 const STATUSES = require('./statuses');
 const { hashPin, verifyPin, generateInviteToken } = require('./auth');
 const { REPORT_COLUMNS, fetchReportRows } = require('./report');
@@ -115,7 +115,7 @@ const CONTACT_SELECT = `
          amb.id AS ambassador_id, amb.name AS ambassador_name,
          creator.name AS created_by_name,
          selfamb.id AS self_of_ambassador_id, selfamb.name AS self_of_ambassador_name,
-         c.invite_token, c.seat_number, c.companion_seat_number, c.attending_with_companion,
+         c.invite_token, c.short_code, c.seat_number, c.companion_seat_number, c.attending_with_companion,
          c.invite_greeting_name, c.invite_companion_name,
          COALESCE((
            SELECT json_agg(json_build_object('id', cat.id, 'name', cat.name) ORDER BY cat.name)
@@ -142,6 +142,7 @@ function shapeContact(r) {
     selfOfAmbassador: r.self_of_ambassador_id ? { id: r.self_of_ambassador_id, name: r.self_of_ambassador_name } : null,
     commentsCount: r.comments_count || 0,
     inviteToken: r.invite_token,
+    shortCode: r.short_code,
     seatNumber: r.seat_number,
     companionSeatNumber: r.companion_seat_number,
     attendingWithCompanion: r.attending_with_companion,
@@ -201,9 +202,9 @@ router.post('/contacts', requireAuth, ah(async (req, res) => {
     assignTo = ambassadorId || null;
   }
   const { rows } = await pool.query(
-    `INSERT INTO contacts (name, phone, notes, ambassador_id, created_by, invite_token)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [name.trim(), phone || null, notes || null, assignTo, req.ambassador.id, generateInviteToken()]
+    `INSERT INTO contacts (name, phone, notes, ambassador_id, created_by, invite_token, short_code)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [name.trim(), phone || null, notes || null, assignTo, req.ambassador.id, generateInviteToken(), await generateUniqueShortCode()]
   );
   const categoryIds = await resolveCategoryIds(categories);
   if (categoryIds.length) await setContactCategories(rows[0].id, categoryIds);
@@ -228,9 +229,9 @@ router.post('/contacts/bulk-import', requireAdmin, ah(async (req, res) => {
       ambassadorId = found;
     }
     const inserted = await pool.query(
-      `INSERT INTO contacts (name, phone, notes, ambassador_id, created_by, invite_token)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [name, r.phone || null, r.notes || null, ambassadorId, req.ambassador.id, generateInviteToken()]
+      `INSERT INTO contacts (name, phone, notes, ambassador_id, created_by, invite_token, short_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [name, r.phone || null, r.notes || null, ambassadorId, req.ambassador.id, generateInviteToken(), await generateUniqueShortCode()]
     );
     const categoryIds = await resolveCategoryIds(r.category);
     if (categoryIds.length) await setContactCategories(inserted.rows[0].id, categoryIds);

@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
-const { hashPin, generateInviteToken } = require('./auth');
+const { hashPin, generateInviteToken, generateShortCode } = require('./auth');
 
 if (!process.env.DATABASE_URL) {
   console.warn('⚠️  DATABASE_URL is not set. Set it to your PostgreSQL connection string (Railway sets this automatically once you add a Postgres plugin).');
@@ -19,7 +19,19 @@ async function migrate() {
   await promoteExistingAdminsToCampaignManagers();
   await setupPrimaryAdmin();
   await backfillInviteTokens();
+  await backfillShortCodes();
   console.log('✅ Database schema is up to date.');
+}
+
+// מנסה קוד קצר רנדומלי, ובודק מול המסד שהוא באמת פנוי לפני שמשתמשים בו — כדי לא לסמוך על
+// המרחב הקטן יחסית (32^6) לבדו כמו ב-invite_token הארוך בהרבה
+async function generateUniqueShortCode() {
+  for (let i = 0; i < 5; i++) {
+    const code = generateShortCode();
+    const { rows } = await pool.query('SELECT 1 FROM contacts WHERE short_code = $1', [code]);
+    if (!rows.length) return code;
+  }
+  throw new Error('לא ניתן היה ליצור קישור מקוצר ייחודי — נסו שוב');
 }
 
 // "מנהל ראשי" חבוי: לא מופיע ברשימת "מי אתה?", נכנסים אליו רק דרך "כניסה לניהול" עם קוד ייעודי.
@@ -66,6 +78,16 @@ async function backfillInviteTokens() {
   if (rows.length) console.log(`🎟️ הוגדר טוקן הזמנה אישי ל-${rows.length} אנשי קשר קיימים.`);
 }
 
+// כנ"ל עבור קוד הקישור המקוצר — לא נוגע בטוקן הארוך הקיים, רק ממלא קוד קצר לכל מי שעדיין אין לו
+async function backfillShortCodes() {
+  const { rows } = await pool.query('SELECT id FROM contacts WHERE short_code IS NULL');
+  for (const r of rows) {
+    const code = await generateUniqueShortCode();
+    await pool.query('UPDATE contacts SET short_code = $1 WHERE id = $2', [code, r.id]);
+  }
+  if (rows.length) console.log(`🔗 הוגדר קישור מקוצר ל-${rows.length} אנשי קשר קיימים.`);
+}
+
 async function seedAdmin() {
   const { rows } = await pool.query('SELECT COUNT(*)::int AS c FROM ambassadors');
   const defaultPin = process.env.ADMIN_PIN || '1414';
@@ -86,4 +108,4 @@ async function seedAdmin() {
   }
 }
 
-module.exports = { pool, migrate };
+module.exports = { pool, migrate, generateUniqueShortCode };

@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS contacts (
   self_of_ambassador_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL,
   created_by INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL,
   invite_token TEXT,
+  -- קישור מקוצר (/i/<code>) לאותה הזמנה — לא מחליף את invite_token, רק חלופה קצרה לשיתוף
+  short_code TEXT UNIQUE,
   seat_number TEXT,
   companion_seat_number TEXT,
   attending_with_companion BOOLEAN,
@@ -134,6 +136,7 @@ ALTER TABLE contacts ADD COLUMN IF NOT EXISTS ambassador_candidate BOOLEAN NOT N
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS candidate_owner_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS self_of_ambassador_id INTEGER REFERENCES ambassadors(id) ON DELETE SET NULL;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS invite_token TEXT;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS short_code TEXT UNIQUE;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS seat_number TEXT;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS companion_seat_number TEXT;
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS attending_with_companion BOOLEAN;

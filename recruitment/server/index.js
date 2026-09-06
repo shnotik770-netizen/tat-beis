@@ -45,6 +45,18 @@ app.get('/event', (req, res) => res.sendFile(path.join(__dirname, '..', 'public'
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api', apiRouter);
 
+// קישור מקוצר (/i/<code>) — חלופה קצרה לנוחות שיתוף, שרק מפנה לקישור המלא הרגיל.
+// לא מחליף אותו: קישורים ארוכים שכבר נשלחו/נשמרו ממשיכים לעבוד בדיוק כמו היום בלי שינוי.
+app.get('/i/:code', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT invite_token FROM contacts WHERE short_code = $1', [req.params.code]);
+    if (!rows[0] || !rows[0].invite_token) return res.status(404).send('קישור לא נמצא.');
+    res.redirect(302, `/invite/${rows[0].invite_token}`);
+  } catch (e) {
+    res.status(500).send('שגיאת שרת.');
+  }
+});
+
 // שם הפנייה מוזן ידנית ע"י שגריר, ולא היה עד כה מוטמע ישירות ב-HTML — יש לברוח אותו לפני
 // הזרקה לתבנית כדי למנוע HTML/attribute injection דרך שם שהוזן בכוונה רעה
 function escHtml(s) {

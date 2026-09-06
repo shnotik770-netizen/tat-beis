@@ -1088,7 +1088,11 @@
   }
 
   function renderInviteOptions(contact){
-    var link = window.location.origin + '/invite/' + contact.inviteToken;
+    // הקישור המקוצר (/i/<code>) מוצג/משותף כברירת מחדל — נוח יותר לשליחה; הקישור הארוך
+    // (/invite/<token>) ממשיך להיות זמין ולעבוד באותה מידה, ללא שינוי, למי שכבר קיבל אותו
+    var link = contact.shortCode
+      ? window.location.origin + '/i/' + contact.shortCode
+      : window.location.origin + '/invite/' + contact.inviteToken;
     return (
       (seatingEnabled() ?
         '<div class="form-row2">' +

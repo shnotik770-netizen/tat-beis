@@ -4,7 +4,7 @@ const CONTACT_SELECT = `
   SELECT c.id, c.name, c.phone, c.notes, c.status, c.created_at, c.updated_at,
          amb.id AS ambassador_id, amb.name AS ambassador_name,
          c.seat_number, c.companion_seat_number, c.attending_with_companion,
-         c.invite_greeting_name, c.invite_companion_name, c.invite_token,
+         c.invite_greeting_name, c.invite_companion_name, c.invite_token, c.short_code,
          COALESCE((
            SELECT json_agg(json_build_object('id', cat.id, 'name', cat.name) ORDER BY cat.name)
            FROM contact_categories cc JOIN categories cat ON cat.id = cc.category_id
@@ -46,7 +46,7 @@ function contactToRow(r) {
     cname: r.invite_companion_name || '',
     withc: r.attending_with_companion === true ? 'כן' : (r.attending_with_companion === false ? 'לא' : ''),
     created: r.created_at ? new Date(r.created_at).toLocaleDateString('he-IL') : '',
-    link: r.invite_token ? `${PUBLIC_BASE_URL}/invite/${r.invite_token}` : ''
+    link: r.short_code ? `${PUBLIC_BASE_URL}/i/${r.short_code}` : (r.invite_token ? `${PUBLIC_BASE_URL}/invite/${r.invite_token}` : '')
   };
 }
 
