@@ -14,9 +14,7 @@ const CONTACT_SELECT = `
   LEFT JOIN ambassadors amb ON amb.id = c.ambassador_id
 `;
 
-// כתובת השורש הציבורית לבניית קישורי ההזמנה האישית בדוח — אותה כתובת קבועה שכבר
-// משמשת לתגי og:image ולכפתור אתר הצמיחה בעמוד ההזמנה עצמו
-const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'https://recruitment-app-production-9b50.up.railway.app';
+const { PUBLIC_BASE_URL } = require('./config');
 
 const REPORT_COLUMNS = [
   { header: 'שם', key: 'name', width: 22 },
