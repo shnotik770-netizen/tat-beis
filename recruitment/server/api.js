@@ -381,23 +381,32 @@ router.post('/contacts/bulk-delete', requireAuth, ah(async (req, res) => {
 // סימון "זה אני": כל שגריר יכול לסמן איש קשר אחד בלבד ברשימה כמייצג אותו עצמו
 // (למשל אם הוא הופיע ברשימה המקורית לפני שהצטרף כשגריר). מוסר אוטומטית מכל איש קשר אחר שסימן קודם.
 // סימון "זה אני" משייך את איש הקשר אוטומטית לשגריר המסמן (כמו עדכון סטטוס על איש קשר לא-משויך) — הוא כבר "שלו" מטבעו.
+// מנהל יכול גם לסמן "זה שגריר X" עבור כל שגריר אחר (ambassadorId) — למשל כשהשגריר עצמו לא שם לב
+// שהוא מופיע ברשימה, או שמנהל מזין אותו בעצמו. מנהל יכול גם לבטל סימון קיים של שגריר אחר.
 router.post('/contacts/:id/self', requireAuth, ah(async (req, res) => {
-  const { self } = req.body || {};
+  const { self, ambassadorId } = req.body || {};
   const { rowCount } = await pool.query('SELECT 1 FROM contacts WHERE id = $1', [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: 'איש קשר לא נמצא' });
   if (self === false) {
     await pool.query(
-      'UPDATE contacts SET self_of_ambassador_id = NULL, updated_at = now() WHERE id = $1 AND self_of_ambassador_id = $2',
-      [req.params.id, req.ambassador.id]
+      'UPDATE contacts SET self_of_ambassador_id = NULL, updated_at = now() WHERE id = $1 AND (self_of_ambassador_id = $2 OR $3)',
+      [req.params.id, req.ambassador.id, !!req.ambassador.is_admin]
     );
   } else {
+    let targetId = req.ambassador.id;
+    if (ambassadorId !== undefined && ambassadorId !== null) {
+      if (!req.ambassador.is_admin) return res.status(403).json({ error: 'רק מנהל יכול לסמן איש קשר כ"זה" שגריר אחר' });
+      const { rowCount: ambExists } = await pool.query('SELECT 1 FROM ambassadors WHERE id = $1', [ambassadorId]);
+      if (!ambExists) return res.status(404).json({ error: 'שגריר לא נמצא' });
+      targetId = ambassadorId;
+    }
     await pool.query(
       'UPDATE contacts SET self_of_ambassador_id = NULL, updated_at = now() WHERE self_of_ambassador_id = $1',
-      [req.ambassador.id]
+      [targetId]
     );
     await pool.query(
       'UPDATE contacts SET self_of_ambassador_id = $1, ambassador_id = $1, updated_at = now() WHERE id = $2',
-      [req.ambassador.id, req.params.id]
+      [targetId, req.params.id]
     );
   }
   const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);
@@ -424,6 +433,44 @@ router.post('/contacts/:id/candidate', requireAuth, ah(async (req, res) => {
   }
   const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);
   res.json(shapeContact(rows[0]));
+}));
+
+// אישור מועמד/ת והפיכתו לשגריר/ה בלחיצת כפתור — למנהל בלבד. יוצר שגריר חדש משם/טלפון
+// איש הקשר (בדיוק כמו הוספת שגריר ידנית), ומשייך את איש הקשר עצמו לשגריר החדש (כמו "זה אני")
+// כדי שההיסטוריה שלו כבר תופיע ברשימה שלו מהרגע הראשון. הסימון כמועמד/ת מוסר בתום התהליך.
+router.post('/contacts/:id/promote-to-ambassador', requireAdmin, ah(async (req, res) => {
+  const { rows: crows } = await pool.query('SELECT id, name, phone FROM contacts WHERE id = $1', [req.params.id]);
+  if (!crows[0]) return res.status(404).json({ error: 'איש קשר לא נמצא' });
+  const contact = crows[0];
+  let ambassador;
+  try {
+    const { rows } = await pool.query(
+      'INSERT INTO ambassadors (name, phone) VALUES ($1, $2) RETURNING id, name, phone, is_admin, is_campaign_manager',
+      [contact.name.trim(), contact.phone || null]
+    );
+    ambassador = rows[0];
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: `כבר קיים שגריר בשם "${contact.name}"` });
+    throw e;
+  }
+  await pool.query(
+    'UPDATE contacts SET self_of_ambassador_id = NULL, updated_at = now() WHERE self_of_ambassador_id = $1',
+    [ambassador.id]
+  );
+  await pool.query(
+    `UPDATE contacts SET ambassador_candidate = FALSE, candidate_owner_id = NULL,
+       self_of_ambassador_id = $1, ambassador_id = $1, updated_at = now()
+     WHERE id = $2`,
+    [ambassador.id, req.params.id]
+  );
+  const { rows } = await pool.query(CONTACT_SELECT + ' WHERE c.id = $1', [req.params.id]);
+  res.status(201).json({
+    contact: shapeContact(rows[0]),
+    ambassador: {
+      id: ambassador.id, name: ambassador.name, phone: ambassador.phone,
+      isAdmin: ambassador.is_admin, isCampaignManager: ambassador.is_campaign_manager, contactCount: 1
+    }
+  });
 }));
 
 router.get('/contacts/:id/history', requireAuth, ah(async (req, res) => {
@@ -772,7 +819,7 @@ router.delete('/donations/:id', requireDonationsAccess, ah(async (req, res) => {
 // --- הגדרות קמפיין (מנהל קמפיין בלבד לכתיבה; קריאה פתוחה — נדרשת גם בעמודים ציבוריים) ---
 router.get('/campaign-settings', ah(async (req, res) => {
   const { rows } = await pool.query(`
-    SELECT rsvp_enabled, seating_enabled, login_mode,
+    SELECT rsvp_enabled, seating_enabled, candidates_enabled, login_mode,
            event_name, event_tagline, event_date_text, event_datetime, event_location, org_name,
            invite_brand_text, invite_message_text, invite_footer_text,
            quotes_general, quotes_partners, quotes_participants,
@@ -787,6 +834,7 @@ router.get('/campaign-settings', ah(async (req, res) => {
   res.json({
     rsvpEnabled: s.rsvp_enabled !== false,
     seatingEnabled: !!s.seating_enabled,
+    candidatesEnabled: s.candidates_enabled !== false,
     loginMode: s.login_mode || 'none',
     eventName: s.event_name,
     eventTagline: s.event_tagline,
@@ -821,7 +869,7 @@ router.get('/campaign-settings', ah(async (req, res) => {
 
 router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) => {
   const {
-    rsvpEnabled, seatingEnabled, loginMode, sharedPin,
+    rsvpEnabled, seatingEnabled, candidatesEnabled, loginMode, sharedPin,
     eventName, eventTagline, eventDateText, eventDatetime, eventLocation, orgName,
     inviteBrandText, inviteMessageText, inviteFooterText,
     quotesGeneral, quotesPartners, quotesParticipants,
@@ -834,6 +882,7 @@ router.patch('/campaign-settings', requireCampaignManager, ah(async (req, res) =
   let i = 1;
   if (rsvpEnabled !== undefined) { updates.push(`rsvp_enabled = $${i++}`); values.push(!!rsvpEnabled); }
   if (seatingEnabled !== undefined) { updates.push(`seating_enabled = $${i++}`); values.push(!!seatingEnabled); }
+  if (candidatesEnabled !== undefined) { updates.push(`candidates_enabled = $${i++}`); values.push(!!candidatesEnabled); }
   if (loginMode !== undefined) {
     if (!['none', 'shared', 'per_user'].includes(loginMode)) return res.status(400).json({ error: 'מצב כניסה לא תקין' });
     updates.push(`login_mode = $${i++}`); values.push(loginMode);

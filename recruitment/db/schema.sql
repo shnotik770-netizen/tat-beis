@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS campaign_settings (
   id INTEGER PRIMARY KEY DEFAULT 1,
   rsvp_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   seating_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  candidates_enabled BOOLEAN NOT NULL DEFAULT TRUE,
   login_mode TEXT NOT NULL DEFAULT 'none', -- 'none' | 'shared' | 'per_user'
   shared_login_pin_hash TEXT,
   event_name TEXT NOT NULL DEFAULT 'ערב שותפות',
@@ -174,6 +175,7 @@ ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS google_sheet_id TEXT;
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS google_sheet_share_email TEXT;
 ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS google_sheet_last_synced_at TIMESTAMPTZ;
 ALTER TABLE ambassadors ADD COLUMN IF NOT EXISTS can_enter_donations BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE campaign_settings ADD COLUMN IF NOT EXISTS candidates_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- תרומות מזומן שנאספו על ידי שגרירים (או ידנית ע"י מנהל, גם עבור שגריר אחר) — לא קשור לרשימת אנשי הקשר
 CREATE TABLE IF NOT EXISTS donations (

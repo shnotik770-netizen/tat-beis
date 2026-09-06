@@ -313,7 +313,7 @@
       return 'עוד ' + (h === 1 ? 'שעה' : h + ' שעות') + ' לאירוע!';
     }
     var d = Math.ceil(hoursLeft / 24);
-    return 'עוד ' + (d === 1 ? 'יום' : d + ' ימים') + ' לאירוע';
+    return '<span style="color:var(--gold);font-weight:700;opacity:1">עוד ' + (d === 1 ? 'יום' : d + ' ימים') + ' לאירוע</span>';
   }
 
   function fmtDate(iso){
@@ -429,6 +429,7 @@
     // לראות דרך סינון "ללא שיוך" בתוך "כל השותפים" (הבורר "שיוך לשגריר" כבר מוצג לו שם).
     var isCM = state.me.isCampaignManager;
     if (isCM && (state.tab === 'mine' || state.tab === 'unassigned')) state.tab = 'all';
+    if (state.tab === 'candidates' && !candidatesEnabled()) state.tab = 'all';
     var tabs = isCM ? [
       {id:'all', ic:'📚', label:'כל השותפים'},
       {id:'candidates', ic:'🌟', label:'מועמדים'},
@@ -440,6 +441,7 @@
       {id:'candidates', ic:'🌟', label:'מועמדים'},
       {id:'stats', ic:'📊', label:'סטטיסטיקה'}
     ];
+    if (!candidatesEnabled()) tabs = tabs.filter(function(t){ return t.id !== 'candidates'; });
     if (state.me.isAdmin || state.me.canEnterDonations) tabs.push({id:'donations', ic:'💰', label:'תרומות מזומן'});
     if (state.me.isAdmin) tabs.push({id:'admin', ic:'⚙️', label:'ניהול שגרירים ושותפים'});
     if (state.me.isCampaignManager) tabs.push({id:'campaign', ic:'⭐', label:'ניהול קמפיין'});
@@ -452,7 +454,7 @@
             '<div class="sub">שלום, ' + esc(state.me.name) +
               (state.me.isCampaignManager ? ' <span class="badge" style="background:#7c3aed">⭐ מנהל קמפיין</span>' : (state.me.isAdmin ? ' <span class="badge">מנהל שגרירים</span>' : '')) +
             '</div>' +
-            '<div class="sub-date">' + esc(eventCountdownText()) + '</div>' +
+            '<div class="sub-date">' + eventCountdownText() + '</div>' +
           '</div>' +
         '</div>' +
         '<div class="me"><button id="switch-btn">🔄 החלף זהות</button></div>' +
@@ -773,6 +775,18 @@
             }).catch(function(e){ alert(e.message); });
           };
         });
+        Array.prototype.forEach.call(body.querySelectorAll('[data-cand-promote]'), function(el){
+          el.onclick = function(ev){
+            ev.stopPropagation();
+            var id = el.getAttribute('data-cand-promote');
+            var c = contacts.find(function(x){ return String(x.id) === id; });
+            if (!confirm('לאשר את "' + (c ? c.name : '') + '" ולהפוך אותו/ה לשגריר/ה חדש/ה?')) return;
+            api('/contacts/' + id + '/promote-to-ambassador', {method:'POST'}).then(function(){
+              contacts = contacts.filter(function(x){ return String(x.id) !== id; });
+              draw();
+            }).catch(function(e){ alert(e.message); });
+          };
+        });
         Array.prototype.forEach.call(body.querySelectorAll('[data-assign]'), function(sel){
           sel.onchange = function(){
             var id = sel.getAttribute('data-assign');
@@ -883,20 +897,23 @@
       : (opts.scope === 'all' || opts.scope === 'unassigned' ? '' : '<span class="badge-cat" style="color:#b45309;background:#fff7e6">טרם נוצר קשר</span>');
     var ambBadge = (opts.scope === 'all' || opts.scope === 'candidates') && c.ambassador
       ? '<span class="badge-amb">שגריר: ' + esc(c.ambassador.name) + '</span>' : '';
-    var candidateBadge = c.isAmbassadorCandidate ? '<span class="badge-amb">🌟 מועמד/ת לשגרירות</span>' : '';
+    var candidateBadge = (candidatesEnabled() && c.isAmbassadorCandidate) ? '<span class="badge-amb">🌟 מועמד/ת לשגרירות</span>' : '';
     var selfBadge = c.selfOfAmbassador ? '<span class="badge-amb">👤 זה ' + esc(c.selfOfAmbassador.name) + '</span>' : '';
 
     var actionsHtml = '';
     if (opts.scope === 'unassigned'){
       actionsHtml = state.me.isCampaignManager ? '' : '<div class="card-actions"><button class="btn btn-gold btn-sm" data-claim="' + c.id + '">✋ קח לרשימה שלי</button></div>';
     } else if (opts.scope === 'candidates'){
+      var candPieces = [];
       if (c.candidateOwner && c.candidateOwner.id === state.me.id){
-        actionsHtml = '<div class="card-actions"><button class="btn btn-outline btn-sm" data-cand-release="' + c.id + '">לוותר על האחריות</button></div>';
+        candPieces.push('<button class="btn btn-outline btn-sm" data-cand-release="' + c.id + '">לוותר על האחריות</button>');
       } else if (!c.candidateOwner){
-        actionsHtml = '<div class="card-actions"><button class="btn btn-gold btn-sm" data-cand-take="' + c.id + '">✋ אני לוקח אחריות</button></div>';
+        candPieces.push('<button class="btn btn-gold btn-sm" data-cand-take="' + c.id + '">✋ אני לוקח אחריות</button>');
       } else {
-        actionsHtml = '<div class="card-actions"><span class="hint">אחראי/ת: ' + esc(c.candidateOwner.name) + '</span></div>';
+        candPieces.push('<span class="hint">אחראי/ת: ' + esc(c.candidateOwner.name) + '</span>');
       }
+      if (state.me.isAdmin) candPieces.push('<button class="btn btn-primary btn-sm" data-cand-promote="' + c.id + '">✅ אישור והפיכה לשגריר/ה</button>');
+      actionsHtml = '<div class="card-actions">' + candPieces.join('') + '</div>';
     } else if (opts.scope === 'all'){
       var pieces = [];
       if (!c.ambassador && !state.me.isCampaignManager){
@@ -1070,6 +1087,12 @@
     return !!(state.campaignSettings && state.campaignSettings.seatingEnabled);
   }
 
+  // תכונת "מועמדים לשגרירות" (לשונית, סימון בכרטיס, קידום לשגריר) — פעילה כברירת מחדל,
+  // ניתנת לכיבוי דרך הגדרות הקמפיין
+  function candidatesEnabled(){
+    return !!(state.campaignSettings && state.campaignSettings.candidatesEnabled !== false);
+  }
+
   // שם ההזמנה (מוצג ליד עדכון הפרטים האישיים) ושאר אפשרויות ההזמנה (קישור/שמירה) —
   // שני חלקים נפרדים שמוצגים במקומות שונים בכרטיס לפי בקשת הסידור.
   function renderInviteNameFields(contact){
@@ -1133,9 +1156,23 @@
 
   function renderSelfSection(contact){
     var self = contact.selfOfAmbassador;
-    if (self && self.id === state.me.id) return '<button class="btn btn-outline btn-sm" id="self-unset">❌ זה לא אני</button>';
-    if (self) return '<span class="hint">מסומן כ"זה אני" על ידי ' + esc(self.name) + '</span>';
-    return '<button class="btn btn-outline btn-sm" id="self-set">👤 זה אני (השגריר)</button>';
+    var html = '';
+    if (self && self.id === state.me.id) html = '<button class="btn btn-outline btn-sm" id="self-unset">❌ זה לא אני</button>';
+    else if (self) html = '<span class="hint">מסומן כ"זה אני" על ידי ' + esc(self.name) + '</span>';
+    else html = '<button class="btn btn-outline btn-sm" id="self-set">👤 זה אני (השגריר)</button>';
+
+    // מנהל יכול גם לסמן שאיש הקשר הוא בעצם שגריר קיים אחר (לא רק "זה אני")
+    if (state.me.isAdmin){
+      html += '<div style="margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+        '<select id="self-pick-amb"><option value="">זה שגריר…</option>' +
+        state.ambassadors.map(function(a){
+          return '<option value="' + a.id + '" ' + (self && self.id === a.id ? 'selected' : '') + '>זה ' + esc(a.name) + '</option>';
+        }).join('') +
+        '</select>' +
+        (self ? '<button class="btn btn-outline btn-sm" id="self-unset-admin">❌ ביטול סימון</button>' : '') +
+      '</div>';
+    }
+    return html;
   }
 
   function renderDiscussionList(comments){
@@ -1220,7 +1257,7 @@
         '<button class="btn btn-outline btn-sm" id="disc-send">שליחה</button>' +
       '</div>' +
 
-      (state.me.isAdmin ?
+      (state.me.isAdmin && candidatesEnabled() ?
         '<hr class="divider">' +
         '<div class="sec-title" style="margin-bottom:8px">🌟 האם מתאים/ה להיות שגריר/ה?</div>' +
         renderCandidateSection(contact)
@@ -1408,6 +1445,16 @@
         .then(function(){ overlay.remove(); renderApp(); }).catch(function(e){ alert(e.message); });
     };
     if ((el = sheet.querySelector('#self-unset'))) el.onclick = function(){
+      api('/contacts/' + contact.id + '/self', {method:'POST', body: JSON.stringify({self:false})})
+        .then(function(){ overlay.remove(); renderApp(); }).catch(function(e){ alert(e.message); });
+    };
+    if ((el = sheet.querySelector('#self-pick-amb'))) el.onchange = function(){
+      var val = el.value;
+      if (!val) return;
+      api('/contacts/' + contact.id + '/self', {method:'POST', body: JSON.stringify({self:true, ambassadorId: parseInt(val, 10)})})
+        .then(function(){ overlay.remove(); renderApp(); }).catch(function(e){ alert(e.message); el.value = ''; });
+    };
+    if ((el = sheet.querySelector('#self-unset-admin'))) el.onclick = function(){
       api('/contacts/' + contact.id + '/self', {method:'POST', body: JSON.stringify({self:false})})
         .then(function(){ overlay.remove(); renderApp(); }).catch(function(e){ alert(e.message); });
     };
@@ -2119,8 +2166,10 @@
         '<div class="sec-title">הפעלה/כיבוי תכונות</div>' +
         '<label style="display:flex;align-items:center;gap:6px;font-size:13.5px;margin-bottom:10px">' +
           '<input type="checkbox" id="cs-rsvp" ' + (s.rsvpEnabled ? 'checked' : '') + '> אישורי הגעה פעילים (עמוד ההזמנה האישית)</label>' +
-        '<label style="display:flex;align-items:center;gap:6px;font-size:13.5px;margin-bottom:16px">' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:13.5px;margin-bottom:10px">' +
           '<input type="checkbox" id="cs-seating" ' + (s.seatingEnabled ? 'checked' : '') + '> מקומות ישיבה פעילים (בכרטיס איש הקשר)</label>' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:13.5px;margin-bottom:16px">' +
+          '<input type="checkbox" id="cs-candidates" ' + (s.candidatesEnabled !== false ? 'checked' : '') + '> "מועמדים לשגרירות" פעיל (לשונית, סימון מועמד/ת בכרטיס, ואישור לשגריר)</label>' +
 
         '<hr class="divider">' +
         '<div class="sec-title">מה מוצג בלשונית הסטטיסטיקה</div>' +
@@ -2235,6 +2284,7 @@
         var payload = {
           rsvpEnabled: body.querySelector('#cs-rsvp').checked,
           seatingEnabled: body.querySelector('#cs-seating').checked,
+          candidatesEnabled: body.querySelector('#cs-candidates').checked,
           loginMode: loginMode,
           orgName: body.querySelector('#cs-org').value.trim(),
           eventName: body.querySelector('#cs-name').value.trim(),
