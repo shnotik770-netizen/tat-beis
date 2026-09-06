@@ -764,6 +764,30 @@ async function convertCreditToDonation(studentId, amount, note) {
   return { ok: true, id, converted: amt };
 }
 
+// דוח תרומות: כל הדרישות שהן תרומה — אלה שנוצרו מהמרת זכות (notes='המרת זכות לתרומה') וגם
+// דרישות שכותרתן "תרומה" שנוצרו ידנית. מוחזרות עם שם התלמיד, כיתה, תאריך וסכום, ממוינות מהחדש לישן.
+async function getDonationsReport() {
+  const [students, demands] = await Promise.all([da.getAllStudents(), da.getAllDemands()]);
+  const nameById = {}; students.forEach(s => { nameById[s.id] = { name: s.firstName + ' ' + s.lastName, class: s.class, institution: s.institution || '' }; });
+  const rows = [];
+  demands.forEach(d => {
+    const isDonation = (d.notes === 'המרת זכות לתרומה') || (String(d.title || '').trim() === 'תרומה');
+    if (!isDonation) return;
+    (d.studentIds || []).forEach(sid => {
+      const info = nameById[sid] || { name: sid, class: '', institution: '' };
+      rows.push({
+        demandId: d.id, title: d.title, date: d.createdDate, amount: d.amount,
+        fromCredit: d.notes === 'המרת זכות לתרומה',
+        name: info.name, class: info.class, institution: info.institution
+      });
+    });
+  });
+  const dmyKeyL = dmy => { const p = String(dmy || '').split('/'); return p.length === 3 ? (p[2] + '-' + p[1].padStart(2, '0') + '-' + p[0].padStart(2, '0')) : '0000-00-00'; };
+  rows.sort((a, b) => dmyKeyL(a.date) < dmyKeyL(b.date) ? 1 : -1);
+  const total = Math.round(rows.reduce((s, r) => s + r.amount, 0) * 100) / 100;
+  return { rows, total, count: rows.length };
+}
+
 module.exports = {
   pingTest, getAllData,
   addStudent, updateStudent, deleteStudent, importStudentsFromPaste, backfillFamilyParentInfo,
@@ -773,5 +797,5 @@ module.exports = {
   getStudentLedger, getFamilyLedger, getDashboard, getDebtExport,
   getPendingPayments, importPendingFromPaste, assignPendingPayment, deletePendingPayment,
   getReconciliationReport, applyReconciliation,
-  getCreditsReport, convertCreditToDonation
+  getCreditsReport, convertCreditToDonation, getDonationsReport
 };

@@ -2713,6 +2713,7 @@ function renderDebts(filter, clsFilter) {
       '<button class="btn '+(debtViewMode==='child'?'b-p':'b-h')+' b-sm" onclick="setDebtView(\'child\')">👤 לפי ילד</button>' +
       '<button class="btn '+(debtViewMode==='family'?'b-p':'b-h')+' b-sm" onclick="setDebtView(\'family\')">👨‍👩‍👧 לפי משפחות</button>' +
       '<button class="btn b-h b-sm" onclick="openCreditsModal()">💝 זכויות</button>' +
+      '<button class="btn b-h b-sm" onclick="openDonationsReport()">📜 תרומות</button>' +
       '<button class="btn b-h b-sm" onclick="openExportDebt()">📤 ייצוא</button>' +
     '</div>' +
     '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>' +
@@ -2828,6 +2829,31 @@ function doConvertCredit(i){
     toast('הומרה תרומה ₪'+r.converted.toLocaleString()+' ✓','ok');
     openCreditsModal(true); // רענון הרשימה מהשרת (שומר על דגל השינוי)
   }).withFailureHandler(function(e){ toast(e.message,'err'); }).convertCreditToDonation(c.studentId, amt, 'תרומה');
+}
+
+// ── דוח תרומות ──
+function openDonationsReport(){
+  openM('<div class="loading">טוען דוח תרומות...</div>');
+  google.script.run.withSuccessHandler(renderDonationsReport).withFailureHandler(function(e){ toast(e.message,'err'); closeM(); }).getDonationsReport();
+}
+function renderDonationsReport(data){
+  data = data || {rows:[], total:0, count:0};
+  const rows = data.rows.map(function(r){
+    return '<tr><td>'+esc(r.date||'—')+'</td><td>'+esc(r.name)+'</td><td><span class="badge">'+esc(r.class||'—')+'</span></td><td>'+esc(r.institution||'—')+'</td><td><strong>₪'+r.amount.toLocaleString()+'</strong>'+(r.fromCredit?' <span class="badge am" title="נוצר מהמרת זכות">מזכות</span>':'')+'</td></tr>';
+  }).join('');
+  // טקסט להעתקה/הדבקה לאקסל
+  const tsv = 'תאריך\tשם\tכיתה\tמוסד\tסכום\n' + data.rows.map(function(r){ return [r.date,r.name,r.class,r.institution,r.amount].join('\t'); }).join('\n');
+  document.getElementById('modal').innerHTML =
+    '<div class="m-title">📜 דוח תרומות</div>' +
+    '<div class="stats" style="margin-bottom:12px">' +
+      '<div class="stat gr"><div class="stat-l">מספר תרומות</div><div class="stat-v">'+data.count+'</div></div>' +
+      '<div class="stat gr"><div class="stat-l">סה"כ תרומות</div><div class="stat-v">₪'+Math.round(data.total).toLocaleString()+'</div></div>' +
+    '</div>' +
+    (data.count ?
+      '<div class="card" style="padding:0;overflow-x:auto;max-height:55vh;overflow-y:auto"><table style="min-width:460px"><thead><tr><th>תאריך</th><th>שם</th><th>כיתה</th><th>מוסד</th><th>סכום</th></tr></thead><tbody>'+rows+'</tbody></table></div>' +
+      '<div class="fg" style="margin-top:10px"><label>העתקה לאקסל/Sheets</label><textarea readonly style="height:90px;font-family:monospace;font-size:11px" onclick="this.select()">'+esc(tsv)+'</textarea></div>'
+      : '<div class="empty">עדיין אין תרומות רשומות</div>') +
+    '<div class="m-foot"><button class="btn b-h" onclick="closeM()">סגור</button></div>';
 }
 
 // ── התאמת זיכויים לדרישות ──
