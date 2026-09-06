@@ -2713,7 +2713,6 @@ function renderDebts(filter, clsFilter) {
       '<button class="btn '+(debtViewMode==='child'?'b-p':'b-h')+' b-sm" onclick="setDebtView(\'child\')">👤 לפי ילד</button>' +
       '<button class="btn '+(debtViewMode==='family'?'b-p':'b-h')+' b-sm" onclick="setDebtView(\'family\')">👨‍👩‍👧 לפי משפחות</button>' +
       '<button class="btn b-h b-sm" onclick="openCreditsModal()">💝 זכויות</button>' +
-      '<button class="btn b-h b-sm" onclick="openDonationsReport()">📜 תרומות</button>' +
       '<button class="btn b-h b-sm" onclick="openExportDebt()">📤 ייצוא</button>' +
     '</div>' +
     '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>' +
@@ -2861,7 +2860,9 @@ function renderDonationsReport(data){
 // ומראה בדיוק אילו דרישות ייסגרו. לחיצה על "שייך את המסומנים" מפצלת (בשרת) את התשלום הכללי
 // לרשומות פר-דרישה — סה"כ ששולם לא משתנה, רק מסווג מחדש.
 function renderRecon(){
-  document.getElementById('tbAct').innerHTML = '';
+  document.getElementById('tbAct').innerHTML =
+    '<button class="btn b-h b-sm" onclick="renderRecon()">🔍 מצא זיכויים חדשים</button> ' +
+    '<button class="btn b-h b-sm" onclick="openDonationsReport()">📜 דוח תרומות</button>';
   const box = document.getElementById('pg');
   box.innerHTML = '<div class="loading">בודק זיכויים מול דרישות פתוחות...</div>';
   google.script.run.withSuccessHandler(renderReconResults).withFailureHandler(function(e){ box.innerHTML='<div class="card">שגיאה: '+esc(e.message)+'</div>'; }).getReconciliationReport();
