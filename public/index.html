@@ -2597,6 +2597,23 @@ function offerDonationIfCredit(sid){
 
 // ── Debts ──
 let debtSortCol = 'oldest', debtSortDir = 'asc', debtViewMode = 'child';
+let debtTitleFilter = []; // כותרות דרישות פתוחות שסומנו לסינון (ריק = הכל)
+function toggleDebtTitleEl(el){
+  const t = el.getAttribute('data-title');
+  const i = debtTitleFilter.indexOf(t);
+  if(i>-1) debtTitleFilter.splice(i,1); else debtTitleFilter.push(t);
+  el.classList.toggle('on');
+  renderDebtsResults();
+}
+function clearDebtTitleFilter(){
+  debtTitleFilter = [];
+  renderDebts(); // בונה מחדש כדי לאפס את מצב הצ׳יפים
+}
+// האם לתלמיד/משפחה יש דרישה פתוחה מאחת הכותרות שסומנו (ריק = מציג הכל)
+function matchesDebtTitle(s){
+  if(!debtTitleFilter.length) return true;
+  return (s.unpaidDemands||[]).some(function(t){ return debtTitleFilter.indexOf(t)>-1; });
+}
 // חוב נטו ברמת המשפחה: סה"כ מה שנדרש מכל בני המשפחה מול סה"כ מה ששולם עבורם, לפני שמעגלים כל ילד
 // בנפרד ל-0. כך תשלום שלא פוצל בדיוק בין אחים (למשל תשלום כללי אחד שמכסה כמה ילדים) לא משאיר
 // "חוב" מדומה אצל מי מהם כל עוד המשפחה כולה שילמה את מה שנדרש ממנה.
@@ -2670,6 +2687,22 @@ function setDebtSort(col){
   renderDebts();
 }
 function setDebtView(mode){ debtViewMode=mode; renderDebts(); }
+// בונה שורת טבלה לחייב (תלמיד או משפחה) — משותף ל-renderDebts ו-renderDebtsResults
+function debtRowHtml(s){
+  const phone = s.phone || s.dadPhone || s.momPhone;
+  const demBadges = (s.unpaidDemands||[]).slice(0,4).map(function(t){return '<span class="badge rd" style="margin-left:2px">'+t+'</span>';}).join('');
+  const name = s.isFamily ? s.name : (s.lastName+' '+s.firstName);
+  const nameHtml = '<span style="cursor:pointer" onclick=\''+(s.isFamily?'openFamilyLedger':'openLedger')+'("'+s.id+'")\'>'+name+'</span>';
+  const waMsg = s.isFamily ? null : buildWaMsg(s.id);
+  return '<tr>' +
+    '<td>'+nameHtml+(s.active!=='כן'&&!s.isFamily?' <span class="badge gy">לא פעיל</span>':'')+(s.isFamily?' <span class="badge am">👨‍👩‍👧 משפחה</span>':'')+'</td>' +
+    '<td><span class="badge">'+(classKey(s)||'—')+'</span></td>' +
+    '<td><strong style="color:var(--red)">₪'+s.debt.toLocaleString()+'</strong></td>' +
+    '<td class="t2">'+(s.oldestDate||'—')+'</td>' +
+    '<td>'+(demBadges||'<span class="t2">—</span>')+'</td>' +
+    '<td>'+(s.isFamily?'<button class="btn b-h b-sm" onclick=\'openFamilyLedger("'+s.id+'")\'>👨‍👩‍👧</button>':'<button class="btn b-h b-sm" onclick=\'openLedger("'+s.id+'")\'>📒</button>')+
+    (phone?' <a class="btn b-g b-sm" href="'+waLink(phone, waMsg||buildFamilyWaMsgQuick(s))+'" target="_blank">💬</a>':'')+'</td></tr>';
+}
 
 function renderDebts(filter, clsFilter) {
   if(filter===undefined) filter = (document.querySelector('#dbSearch')||{}).value || '';
@@ -2684,23 +2717,17 @@ function renderDebts(filter, clsFilter) {
   const totDebt = Math.round(all.reduce(function(s,x){return s+x.debt;},0));
 
   const displayList = debtViewMode==='family' ? buildFamilyDebtGroups(list) : list;
-  const sorted = sortDebtList(displayList);
+  const sorted = sortDebtList(displayList.filter(matchesDebtTitle));
 
-  const rows = sorted.map(function(s){
-    const phone = s.phone || s.dadPhone || s.momPhone;
-    const demBadges = (s.unpaidDemands||[]).slice(0,4).map(function(t){return '<span class="badge rd" style="margin-left:2px">'+t+'</span>';}).join('');
-    const name = s.isFamily ? s.name : (s.lastName+' '+s.firstName);
-    const nameHtml = '<span style="cursor:pointer" onclick=\''+(s.isFamily?'openFamilyLedger':'openLedger')+'("'+s.id+'")\'>'+name+'</span>';
-    const waMsg = s.isFamily ? null : buildWaMsg(s.id);
-    return '<tr>' +
-      '<td>'+nameHtml+(s.active!=='כן'&&!s.isFamily?' <span class="badge gy">לא פעיל</span>':'')+(s.isFamily?' <span class="badge am">👨‍👩‍👧 משפחה</span>':'')+'</td>' +
-      '<td><span class="badge">'+(classKey(s)||'—')+'</span></td>' +
-      '<td><strong style="color:var(--red)">₪'+s.debt.toLocaleString()+'</strong></td>' +
-      '<td class="t2">'+(s.oldestDate||'—')+'</td>' +
-      '<td>'+(demBadges||'<span class="t2">—</span>')+'</td>' +
-      '<td>'+(s.isFamily?'<button class="btn b-h b-sm" onclick=\'openFamilyLedger("'+s.id+'")\'>👨‍👩‍👧</button>':'<button class="btn b-h b-sm" onclick=\'openLedger("'+s.id+'")\'>📒</button>')+
-      (phone?' <a class="btn b-g b-sm" href="'+waLink(phone, waMsg||buildFamilyWaMsgQuick(s))+'" target="_blank">💬</a>':'')+'</td></tr>';
-  }).join('');
+  const rows = sorted.map(debtRowHtml).join('');
+  // צ׳יפים לסינון לפי כותרת דרישה פתוחה — מכל החייבים (לא רק המסוננים כרגע)
+  const allTitles = [...new Set(all.reduce(function(a,x){return a.concat(x.unpaidDemands||[]);},[]))].sort(function(a,b){return a.localeCompare(b,'he');});
+  const titleChips = allTitles.length ?
+    ('<div class="fg" style="margin-bottom:10px"><label>סינון לפי דרישה פתוחה' +
+      (debtTitleFilter.length?' <button class="btn b-h b-sm" onclick="clearDebtTitleFilter()">נקה סינון ✕</button>':'') +
+     '</label><div class="chips">' +
+      allTitles.map(function(t){ return '<span class="chip'+(debtTitleFilter.indexOf(t)>-1?' on':'')+'" data-title="'+esc(t)+'" onclick="toggleDebtTitleEl(this)">'+esc(t)+'</span>'; }).join('') +
+     '</div></div>') : '';
 
   document.getElementById('pg').innerHTML =
     '<div class="stats" style="margin-bottom:12px">' +
@@ -2715,6 +2742,7 @@ function renderDebts(filter, clsFilter) {
       '<button class="btn b-h b-sm" onclick="openCreditsModal()">💝 זכויות</button>' +
       '<button class="btn b-h b-sm" onclick="openExportDebt()">📤 ייצוא</button>' +
     '</div>' +
+    titleChips +
     '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>' +
       '<th style="cursor:pointer" onclick="setDebtSort(\'name\')">שם'+sortIcon('name')+'</th>' +
       '<th style="cursor:pointer" onclick="setDebtSort(\'class\')">כיתה'+sortIcon('class')+'</th>' +
@@ -2733,23 +2761,9 @@ function renderDebtsResults(){
     return mn && mc;
   });
   const displayList = debtViewMode==='family' ? buildFamilyDebtGroups(list) : list;
-  const sorted = sortDebtList(displayList);
-  const rows = sorted.map(function(s){
-    const phone = s.phone || s.dadPhone || s.momPhone;
-    const demBadges = (s.unpaidDemands||[]).slice(0,4).map(function(t){return '<span class="badge rd" style="margin-left:2px">'+t+'</span>';}).join('');
-    const name = s.isFamily ? s.name : (s.lastName+' '+s.firstName);
-    const nameHtml = '<span style="cursor:pointer" onclick=\''+(s.isFamily?'openFamilyLedger':'openLedger')+'("'+s.id+'")\'>'+name+'</span>';
-    const waMsg = s.isFamily ? null : buildWaMsg(s.id);
-    return '<tr>' +
-      '<td>'+nameHtml+(s.active!=='כן'&&!s.isFamily?' <span class="badge gy">לא פעיל</span>':'')+(s.isFamily?' <span class="badge am">👨‍👩‍👧 משפחה</span>':'')+'</td>' +
-      '<td><span class="badge">'+(classKey(s)||'—')+'</span></td>' +
-      '<td><strong style="color:var(--red)">₪'+s.debt.toLocaleString()+'</strong></td>' +
-      '<td class="t2">'+(s.oldestDate||'—')+'</td>' +
-      '<td>'+(demBadges||'<span class="t2">—</span>')+'</td>' +
-      '<td>'+(s.isFamily?'<button class="btn b-h b-sm" onclick=\'openFamilyLedger("'+s.id+'")\'>👨‍👩‍👧</button>':'<button class="btn b-h b-sm" onclick=\'openLedger("'+s.id+'")\'>📒</button>')+
-      (phone?' <a class="btn b-g b-sm" href="'+waLink(phone, waMsg||buildFamilyWaMsgQuick(s))+'" target="_blank">💬</a>':'')+'</td></tr>';
-  }).join('');
-  document.getElementById('dbTbody').innerHTML = rows || '<tr><td colspan="6" class="empty">אין חובות פתוחים 🎉</td></tr>';
+  const sorted = sortDebtList(displayList.filter(matchesDebtTitle));
+  const rows = sorted.map(debtRowHtml).join('');
+  document.getElementById('dbTbody').innerHTML = rows || '<tr><td colspan="6" class="empty">אין חובות תואמים לסינון</td></tr>';
 }
 function buildFamilyWaMsgQuick(familyGroup){
   const L = [];
