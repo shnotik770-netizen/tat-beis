@@ -1,4 +1,5 @@
 const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
 const path = require('path');
 const { pool, migrate } = require('./db');
@@ -6,6 +7,7 @@ const apiRouter = require('./api');
 const sheetsSync = require('./sheets');
 const { renderInviteCardPng } = require('./inviteCard');
 const { PUBLIC_BASE_URL } = require('./config');
+const { REPORT_COLUMNS, fetchReportRows } = require('./report');
 
 const app = express();
 app.use(express.json({ limit: '8mb' })); // כולל מקום לתמונות לוגו/הזמנה בבסיס 64 שמנהל קמפיין מעלה
@@ -44,6 +46,31 @@ app.get('/event', (req, res) => res.sendFile(path.join(__dirname, '..', 'public'
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api', apiRouter);
+
+// דוח JSON להיצמדות (pull) מגוגל אפס סקריפט בתוך גיליון גוגל שיטס — חלופה קלה יותר לסנכרון
+// דרך חשבון שירות (server.js): במקום שהשרת דוחף החוצה, סקריפט שרץ בתוך הגיליון עצמו שולף
+// מכאן. מוגן בטוקן קבוע שרק מי שיש לו אותו (בסקריפט שהודבק בגיליון) יכול לקרוא — אין כאן
+// מידע פיננסי, אבל כן פרטי קשר אישיים (טלפון, שם), ולכן לא פתוח בלי טוקן בשום מצב.
+function safeTokenEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+app.get('/report.json', async (req, res) => {
+  const token = process.env.REPORT_SYNC_TOKEN;
+  if (!token) return res.status(501).json({ error: 'לא הוגדר REPORT_SYNC_TOKEN בשרת — אין גישה לדוח בדרך הזו' });
+  if (!safeTokenEqual(String(req.query.token || ''), token)) return res.status(403).json({ error: 'טוקן גישה שגוי' });
+  try {
+    const reportRows = await fetchReportRows(pool);
+    const columns = REPORT_COLUMNS.map((c) => c.header);
+    const rows = reportRows.map((row) => REPORT_COLUMNS.map((col) => (row[col.key] == null ? '' : row[col.key])));
+    res.json({ columns, rows, generatedAt: new Date().toISOString() });
+  } catch (e) {
+    res.status(500).json({ error: 'שגיאת שרת ביצירת הדוח' });
+  }
+});
 
 // קישור מקוצר (/i/<code>) — חלופה קצרה לנוחות שיתוף, שרק מפנה לקישור המלא הרגיל.
 // לא מחליף אותו: קישורים ארוכים שכבר נשלחו/נשמרו ממשיכים לעבוד בדיוק כמו היום בלי שינוי.
