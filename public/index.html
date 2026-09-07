@@ -1364,10 +1364,12 @@ function renderLedger(data) {
   let parentHtml = '';
   if(s.dadName||s.momName){
     parentHtml = '<div style="background:var(--bg);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:13px">';
-    if(s.dadName) parentHtml += '<div style="display:flex;justify-content:space-between;align-items:center">אב: <strong>'+s.dadName+'</strong>'+(s.dadPhone?' · '+s.dadPhone:'')+
-      (s.dadPhone?' <a class="btn b-g b-sm" href="'+waLink(s.dadPhone, buildWaMsg(s.id))+'" target="_blank">💬</a>':'')+'</div>';
-    if(s.momName) parentHtml += '<div style="display:flex;justify-content:space-between;align-items:center">אם: <strong>'+s.momName+'</strong>'+(s.momPhone?' · '+s.momPhone:'')+
-      (s.momPhone?' <a class="btn b-g b-sm" href="'+waLink(s.momPhone, buildWaMsg(s.id))+'" target="_blank">💬</a>':'')+'</div>';
+    // התווית+שם+טלפון נעטפים ב-span אחד (צד ימין) וכפתור הוואטסאפ לבד (צד שמאל) — כך שם ההורה
+    // לא "נזרק" לצד שמאל עם רווח מכוער כשאין טלפון
+    if(s.dadName) parentHtml += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>אב: <strong>'+esc(s.dadName)+'</strong>'+(s.dadPhone?' · '+esc(s.dadPhone):'')+'</span>'+
+      (s.dadPhone?'<a class="btn b-g b-sm" href="'+waLink(s.dadPhone, buildWaMsg(s.id))+'" target="_blank">💬</a>':'')+'</div>';
+    if(s.momName) parentHtml += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>אם: <strong>'+esc(s.momName)+'</strong>'+(s.momPhone?' · '+esc(s.momPhone):'')+'</span>'+
+      (s.momPhone?'<a class="btn b-g b-sm" href="'+waLink(s.momPhone, buildWaMsg(s.id))+'" target="_blank">💬</a>':'')+'</div>';
     parentHtml += '</div>';
   }
   const dispBalance = famSettled ? 0 : data.totalBalance;
@@ -1454,7 +1456,7 @@ function renderFamilyLedger(data){
   const netBanner = data.familyNet>0
     ? '<div class="card" style="border-right:3px solid var(--red);background:var(--redl);margin-bottom:12px"><strong style="color:var(--red)">⚠️ למשפחה חוב פתוח של ₪'+data.familyNet.toLocaleString()+'</strong></div>'
     : (data.familyNet<0
-      ? '<div class="card" style="border-right:3px solid var(--amb);background:var(--ambl);margin-bottom:12px"><strong style="color:var(--amb)">💰 למשפחה זכות של ₪'+Math.abs(data.familyNet).toLocaleString()+'</strong></div>'
+      ? '<div class="card" style="border-right:3px solid var(--amb);background:var(--ambl);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><strong style="color:var(--amb)">💰 למשפחה זכות של ₪'+Math.abs(data.familyNet).toLocaleString()+'</strong><button class="btn b-g b-sm" onclick="convertFamilyCredit()">💝 המר לתרומה</button></div>'
       : '<div class="card" style="border-right:3px solid var(--grn);background:var(--grnl);margin-bottom:12px"><strong style="color:var(--grn)">✅ המשפחה מסולקת</strong></div>');
 
   document.getElementById('modal').innerHTML =
@@ -1483,6 +1485,22 @@ function openPayMForFamilyLedger(){
   if(!window._familyData) return;
   const ids = window._familyData.members.map(function(m){return m.student.id;});
   openPayMForFamily(ids);
+}
+// המרת זכות המשפחה לתרומה מתוך הכרטסת המשפחתית עצמה (כשיש עודף תשלום)
+function convertFamilyCredit(){
+  const data = window._familyData;
+  if(!data || !(data.familyNet<0) || !data.members.length) return;
+  const credit = Math.round(Math.abs(data.familyNet)*100)/100;
+  const anchor = data.members[0].student.id;
+  const amtStr = prompt('סכום להמרה לתרומה (מתוך זכות ₪'+credit.toLocaleString()+'):', credit);
+  if(amtStr===null) return;
+  const amt = parseFloat(amtStr)||0;
+  if(amt<=0){ toast('סכום לא תקין','err'); return; }
+  google.script.run.withSuccessHandler(function(r){
+    if(r&&!r.ok){ toast(r.err,'err'); return; }
+    toast('הומרה תרומה ₪'+r.converted.toLocaleString()+' ✓','ok');
+    openFamilyLedger(anchor); // רענון הכרטסת המשפחתית
+  }).withFailureHandler(function(e){ toast(e.message,'err'); }).convertCreditToDonation(anchor, amt, 'תרומה');
 }
 function delStFromFamily(id){
   const s = D.students.filter(function(x){return x.id===id;})[0];
@@ -2814,7 +2832,7 @@ function renderCreditsModal(list){
   window._creditsData = list || [];
   const rows = window._creditsData.map(function(c,i){
     return '<div class="p-row" style="flex-wrap:wrap;gap:6px;align-items:center">' +
-      '<span style="flex:1;min-width:140px"><strong>'+esc(c.name)+'</strong> <span class="badge">'+esc(c.class||'—')+(c.institution?' · '+esc(c.institution):'')+'</span></span>' +
+      '<span style="flex:1;min-width:140px;cursor:pointer" title="פתח כרטסת משפחתית" onclick=\'closeM();openFamilyLedger("'+c.studentId+'")\'><strong>'+esc(c.name)+'</strong> <span class="badge">'+esc(c.class||'—')+(c.institution?' · '+esc(c.institution):'')+'</span> 📒</span>' +
       '<span class="badge am">זכות ₪'+c.credit.toLocaleString()+'</span>' +
       '<input type="number" id="crAmt_'+i+'" value="'+c.credit+'" style="width:90px">' +
       '<button class="btn b-g b-sm" onclick="doConvertCredit('+i+')">💝 המר לתרומה</button>' +
