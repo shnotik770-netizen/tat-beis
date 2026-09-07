@@ -198,6 +198,8 @@
   };
   // מבחינת לוח הסטטיסטיקה "קיבל הזמנה רשמית" ו"בודק" נספרים יחד עם "שיחה ראשונית" — כולם שלבים מוקדמים בתהליך
   var STATS_MERGE_STATUS = { 'קיבל הזמנה רשמית': 'שיחה ראשונית', 'בודק': 'שיחה ראשונית' };
+  // ערך-שומר (לא סטטוס אמיתי) לאפשרות הסינון "טרם נוצר קשר" — כדי להבדיל מ"" שמשמעו "כל הסטטוסים"
+  var NO_STATUS_FILTER = '__none__';
 
   // כל קטגוריה מקבלת צבע קבוע לפי ה-id שלה, כדי שאותה קטגוריה תיראה תמיד באותו צבע בכל האתר
   var CATEGORY_PALETTE = [
@@ -514,7 +516,8 @@
             if (!hit) return false;
           }
           if (filters.cat && !c.categories.some(function(x){ return x.name === filters.cat; })) return false;
-          if (filters.status && c.status !== filters.status) return false;
+          if (filters.status === NO_STATUS_FILTER && c.status) return false;
+          if (filters.status && filters.status !== NO_STATUS_FILTER && c.status !== filters.status) return false;
           if (filters.amb === 'none' && c.ambassador) return false;
           if (filters.amb && filters.amb !== 'none' && (!c.ambassador || String(c.ambassador.id) !== filters.amb)) return false;
           if (filters.uncategorized && c.categories.length) return false;
@@ -552,6 +555,7 @@
       var catOptionsHtml = '<option value="">כל הקטגוריות</option>' +
         cats.map(function(c){ return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
       var statusOptionsHtml = '<option value="">כל הסטטוסים</option>' +
+        '<option value="' + NO_STATUS_FILTER + '">⏳ טרם נוצר קשר (ללא סטטוס)</option>' +
         state.statuses.map(function(s){ return '<option value="' + esc(s) + '">' + esc(s) + '</option>'; }).join('');
 
       content.innerHTML =
