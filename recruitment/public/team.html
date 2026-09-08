@@ -49,6 +49,7 @@
   .fab{position:absolute;left:16px;bottom:0;pointer-events:auto;width:54px;height:54px;border-radius:50%;
     background:var(--gold);color:#3a2a04;border:none;font-size:22px;box-shadow:0 4px 14px rgba(120,90,20,.4);
     display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .fab.fab-cash{background:var(--success);color:#fff;box-shadow:0 4px 14px rgba(22,101,52,.4)}
 
   .toast{position:fixed;bottom:150px;right:50%;transform:translateX(50%) translateY(10px);max-width:340px;
     width:calc(100% - 32px);background:var(--navy);color:#fff;padding:14px 18px;border-radius:14px;
@@ -462,11 +463,18 @@
         '<div class="me"><button id="switch-btn">🔄 החלף זהות</button></div>' +
       '</div>' +
       '<div class="content" id="content"></div>' +
-      '<div class="fab-wrap"><button class="fab" id="fab-add" title="הוספת איש קשר">➕</button></div>' +
+      '<div class="fab-wrap"><button class="fab" id="fab-add">➕</button></div>' +
       '<div class="tabbar" id="tabbar"></div>';
 
     document.getElementById('switch-btn').onclick = switchIdentity;
-    document.getElementById('fab-add').onclick = openAddContactSheet;
+
+    // בלשונית "תרומות מזומן" כפתור הפלוס עובר להוסיף תרומה (למי שיש הרשאה) במקום איש קשר —
+    // ומקבל צבע שונה כדי שברור בבירור שהפעולה שלו השתנתה בהקשר הזה
+    var fab = document.getElementById('fab-add');
+    var fabIsCash = state.tab === 'donations' && (state.me.isAdmin || state.me.canEnterDonations);
+    fab.classList.toggle('fab-cash', fabIsCash);
+    fab.title = fabIsCash ? 'הוספת תרומה' : 'הוספת איש קשר';
+    fab.onclick = fabIsCash ? function(){ state.donationsFormOpen = true; renderApp(); } : openAddContactSheet;
 
     var tabbar = document.getElementById('tabbar');
     tabbar.innerHTML = tabs.map(function(t){
