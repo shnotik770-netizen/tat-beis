@@ -1653,7 +1653,9 @@
         (sectionOn('statsTilesEnabled') ?
           '<div class="stat-tiles">' +
             '<div class="stat-tile"><div class="stat-num" style="color:var(--info)">' + overview.contacted + '</div><div class="stat-label">פנינו אליהם בסך הכל</div></div>' +
-            '<div class="stat-tile"><div class="stat-num" style="color:var(--success)">' + overview.confirmed + '</div><div class="stat-label">אישרו הגעה</div></div>' +
+            '<div class="stat-tile"><div class="stat-num" style="color:var(--success)">' + overview.confirmed + '</div><div class="stat-label">אישרו הגעה' +
+              (overview.companions ? '<div style="font-size:9.5px;opacity:.8;margin-top:1px">(מתוכם ' + overview.companions + ' בני/בנות זוג)</div>' : '') +
+            '</div></div>' +
             '<div class="stat-tile"><div class="stat-num" style="color:var(--warn)">' + overview.notContacted + '</div><div class="stat-label">עוד לא פנינו אליהם</div></div>' +
           '</div>' : '') +
 
