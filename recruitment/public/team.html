@@ -319,6 +319,18 @@
     return '<span style="color:var(--gold-light);font-weight:800;font-size:12px">עוד ' + (d === 1 ? 'יום' : d + ' ימים') + ' לאירוע</span>';
   }
 
+  // ברגע שהאירוע עצמו כבר עבר — שלב גיוס המשתתפים בפועל נגמר — מי שיש לו גישה לתרומות
+  // (מנהל שגרירים או שגריר עם הרשאת תרומות) נוחת ישר בלשונית התרומות בכניסה, כי זו הפעילות
+  // הרלוונטית שנשארת. נקבע פעם אחת, בכניסה הראשונה בלבד — לא דורס ניווט ידני בהמשך.
+  function applyDefaultTab(){
+    if (!state.me) return;
+    var eventDate = (state.campaignSettings && state.campaignSettings.eventDatetime)
+      ? new Date(state.campaignSettings.eventDatetime) : EVENT_DATE_FALLBACK;
+    var eventOver = (eventDate - new Date()) <= 0;
+    var hasDonationsAccess = state.me.isAdmin || state.me.canEnterDonations;
+    if (eventOver && hasDonationsAccess) state.tab = 'donations';
+  }
+
   function fmtDate(iso){
     if (!iso) return '';
     var d = new Date(iso);
@@ -340,7 +352,7 @@
       var found = savedId && state.ambassadors.find(function(a){ return String(a.id) === savedId; });
       if (found){
         state.me = found;
-        loadShared().then(renderApp);
+        loadShared().then(function(){ applyDefaultTab(); renderApp(); });
       } else {
         renderPicker();
       }
@@ -380,7 +392,7 @@
       if (!code) return;
       api('/primary-admin-login', {method:'POST', body: JSON.stringify({code:code})}).then(function(amb){
         setIdentity(amb);
-        loadShared().then(renderApp);
+        loadShared().then(function(){ applyDefaultTab(); renderApp(); });
       }).catch(function(e){ alert(e.message); });
     };
 
@@ -403,7 +415,7 @@
           var needsPin = amb.isAdmin || amb.canEnterDonations || loginMode !== 'none';
           if (!needsPin){
             setIdentity(amb);
-            loadShared().then(renderApp);
+            loadShared().then(function(){ applyDefaultTab(); renderApp(); });
             return;
           }
           var promptText = loginMode === 'shared' ? 'הזינו את קוד הגישה המשותף:' : 'הזינו קוד גישה:';
@@ -411,7 +423,7 @@
           if (pin === null) return;
           api('/ambassadors/' + amb.id + '/verify-pin', {method:'POST', body: JSON.stringify({pin:pin})}).then(function(){
             setIdentity(amb);
-            loadShared().then(renderApp);
+            loadShared().then(function(){ applyDefaultTab(); renderApp(); });
           }).catch(function(e){ alert(e.message); });
         };
       });
@@ -468,13 +480,29 @@
 
     document.getElementById('switch-btn').onclick = switchIdentity;
 
-    // בלשונית "תרומות מזומן" כפתור הפלוס עובר להוסיף תרומה (למי שיש הרשאה) במקום איש קשר —
-    // ומקבל צבע שונה כדי שברור בבירור שהפעולה שלו השתנתה בהקשר הזה
+    // כפתור הפלוס משנה פעולה (ולעיתים גם צבע/נראות) לפי הלשונית הנוכחית: הוספת תרומה בתרומות
+    // מזומן, הוספת שגריר בניהול שגרירים, ומוסתר לגמרי בניהול קמפיין (אין שם "הוספה" רלוונטית)
     var fab = document.getElementById('fab-add');
-    var fabIsCash = state.tab === 'donations' && (state.me.isAdmin || state.me.canEnterDonations);
-    fab.classList.toggle('fab-cash', fabIsCash);
-    fab.title = fabIsCash ? 'הוספת תרומה' : 'הוספת איש קשר';
-    fab.onclick = fabIsCash ? function(){ state.donationsFormOpen = true; renderApp(); } : openAddContactSheet;
+    var fabMode = 'contact';
+    if (state.tab === 'donations' && (state.me.isAdmin || state.me.canEnterDonations)) fabMode = 'cash';
+    else if (state.tab === 'admin' && state.adminTab === 'ambassadors') fabMode = 'ambassador';
+    else if (state.tab === 'campaign') fabMode = 'none';
+
+    fab.classList.toggle('fab-cash', fabMode === 'cash');
+    fab.style.display = fabMode === 'none' ? 'none' : '';
+    if (fabMode === 'cash') {
+      fab.title = 'הוספת תרומה';
+      fab.onclick = function(){ state.donationsFormOpen = true; renderApp(); };
+    } else if (fabMode === 'ambassador') {
+      fab.title = 'הוספת שגריר';
+      fab.onclick = function(){
+        var el = document.getElementById('na-name');
+        if (el) { el.scrollIntoView({behavior:'smooth', block:'center'}); el.focus(); }
+      };
+    } else if (fabMode === 'contact') {
+      fab.title = 'הוספת איש קשר';
+      fab.onclick = openAddContactSheet;
+    }
 
     var tabbar = document.getElementById('tabbar');
     tabbar.innerHTML = tabs.map(function(t){
@@ -1943,11 +1971,11 @@
         (ambsForPicker || []).filter(function(a){ return a.id !== state.me.id; }).map(function(a){ return '<option value="' + a.id + '" ' + (existing && existing.ambassador && String(existing.ambassador.id) === String(a.id) ? 'selected' : '') + '>' + esc(a.name) + '</option>'; }).join('') +
       '</select></div>') : '') +
       '<div class="field"><label>שם התורם *</label><input id="' + pfx + 'name" value="' + esc(d.donorName || '') + '"></div>' +
+      '<div class="field"><label>סכום *</label><input id="' + pfx + 'amount" type="number" inputmode="decimal" min="0" step="0.01" value="' + (d.amount != null ? d.amount : '') + '"></div>' +
       '<div class="field"><label>טלפון (לא חובה)</label><input id="' + pfx + 'phone" type="tel" value="' + esc(d.donorPhone || '') + '"></div>' +
       '<div class="field"><label>מספר תעודת זהות (לצורך קבלה)</label><input id="' + pfx + 'idnum" value="' + esc(d.donorIdNumber || '') + '"></div>' +
       '<div class="field"><label>אימייל</label><input id="' + pfx + 'email" type="email" value="' + esc(d.donorEmail || '') + '"></div>' +
       donationBirthdayFieldsHtml(pfx, d.donorBirthdayCalendar || 'hebrew', d.donorBirthdayHebrewDay, d.donorBirthdayHebrewMonth, d.donorBirthday) +
-      '<div class="field"><label>סכום *</label><input id="' + pfx + 'amount" type="number" inputmode="decimal" min="0" step="0.01" value="' + (d.amount != null ? d.amount : '') + '"></div>' +
       '<div class="field"><label>אופן תרומה</label><select id="' + pfx + 'method"><option value="">—</option>' +
         DONATION_METHODS.map(function(m){ return '<option value="' + esc(m) + '" ' + (d.method === m ? 'selected' : '') + '>' + esc(m) + '</option>'; }).join('') +
       '</select></div>' +
@@ -2048,7 +2076,9 @@
 
   function renderDonationsTab(content){
     var isAdmin = !!state.me.isAdmin;
-    content.innerHTML = '<div class="sec-title">💰 תרומות מזומן</div><div id="don-body"><div class="spinner">טוען…</div></div>';
+    // כשטופס ההוספה פתוח מדלגים על הכותרת/תיאור/סיכומים/סינון — מוצג רק הטופס עצמו, כדי שהוספה מהירה
+    // (למשל דרך כפתור הפלוס) תיפתח ישר למה שרלוונטי, בלי גלילה מיותרת
+    content.innerHTML = (state.donationsFormOpen ? '' : '<div class="sec-title">💰 תרומות מזומן</div>') + '<div id="don-body"><div class="spinner">טוען…</div></div>';
     var body = content.querySelector('#don-body');
 
     Promise.all([
@@ -2072,25 +2102,27 @@
       });
 
       body.innerHTML =
-        '<div class="hint" style="margin-bottom:12px">' + (isAdmin
-          ? 'כל תרומות המזומן שתועדו על ידי השגרירים, וכן תרומות שתועדו כאן ידנית. "התקבל אצל" מסמן איזה מנהל בפועל קיבל את הכסף לידיים — כל עוד לא סומן, הכסף עדיין אצל השגריר שתיעד.'
-          : 'תרומות מזומן שקיבלת ותיעדת. עניין כספי — הרשימה נשמרת רק אצלך ואצל המנהלים.') + '</div>' +
-        '<div style="font-weight:700;margin-bottom:4px">סה"כ: ' + total.toLocaleString('he-IL') + ' ₪ (' + donations.length + ')</div>' +
-        (isAdmin && pending.length ? '<div style="font-weight:700;color:var(--danger);margin-bottom:14px">⏳ טרם נאספו: ' + pendingSum.toLocaleString('he-IL') + ' ₪ (' + pending.length + ') — עדיין אצל השגרירים</div>' : '<div style="margin-bottom:14px"></div>') +
-        (isAdmin ? (
-          '<div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:14px">' +
-            '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px">הוכנס לאתר: <select id="dn-filter-site">' +
-              '<option value="all"' + (state.donationsFilterSite === 'all' ? ' selected' : '') + '>הכל</option>' +
-              '<option value="yes"' + (state.donationsFilterSite === 'yes' ? ' selected' : '') + '>רק שהוכנס</option>' +
-              '<option value="no"' + (state.donationsFilterSite === 'no' ? ' selected' : '') + '>רק שלא הוכנס</option>' +
-            '</select></label>' +
-            '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px">התקבל אצל מנהל: <select id="dn-filter-collected">' +
-              '<option value="all"' + (state.donationsFilterCollected === 'all' ? ' selected' : '') + '>הכל</option>' +
-              '<option value="yes"' + (state.donationsFilterCollected === 'yes' ? ' selected' : '') + '>רק שהתקבל</option>' +
-              '<option value="no"' + (state.donationsFilterCollected === 'no' ? ' selected' : '') + '>רק שטרם התקבל</option>' +
-            '</select></label>' +
-          '</div>'
-        ) : '') +
+        (state.donationsFormOpen ? '' :
+          '<div class="hint" style="margin-bottom:12px">' + (isAdmin
+            ? 'כל תרומות המזומן שתועדו על ידי השגרירים, וכן תרומות שתועדו כאן ידנית. "התקבל אצל" מסמן איזה מנהל בפועל קיבל את הכסף לידיים — כל עוד לא סומן, הכסף עדיין אצל השגריר שתיעד.'
+            : 'תרומות מזומן שקיבלת ותיעדת. עניין כספי — הרשימה נשמרת רק אצלך ואצל המנהלים.') + '</div>' +
+          '<div style="font-weight:700;margin-bottom:4px">סה"כ: ' + total.toLocaleString('he-IL') + ' ₪ (' + donations.length + ')</div>' +
+          (isAdmin && pending.length ? '<div style="font-weight:700;color:var(--danger);margin-bottom:14px">⏳ טרם נאספו: ' + pendingSum.toLocaleString('he-IL') + ' ₪ (' + pending.length + ') — עדיין אצל השגרירים</div>' : '<div style="margin-bottom:14px"></div>') +
+          (isAdmin ? (
+            '<div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:14px">' +
+              '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px">הוכנס לאתר: <select id="dn-filter-site">' +
+                '<option value="all"' + (state.donationsFilterSite === 'all' ? ' selected' : '') + '>הכל</option>' +
+                '<option value="yes"' + (state.donationsFilterSite === 'yes' ? ' selected' : '') + '>רק שהוכנס</option>' +
+                '<option value="no"' + (state.donationsFilterSite === 'no' ? ' selected' : '') + '>רק שלא הוכנס</option>' +
+              '</select></label>' +
+              '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px">התקבל אצל מנהל: <select id="dn-filter-collected">' +
+                '<option value="all"' + (state.donationsFilterCollected === 'all' ? ' selected' : '') + '>הכל</option>' +
+                '<option value="yes"' + (state.donationsFilterCollected === 'yes' ? ' selected' : '') + '>רק שהתקבל</option>' +
+                '<option value="no"' + (state.donationsFilterCollected === 'no' ? ' selected' : '') + '>רק שטרם התקבל</option>' +
+              '</select></label>' +
+            '</div>'
+          ) : '')
+        ) +
         (!state.donationsFormOpen
           ? '<button class="btn btn-gold btn-sm" id="dn-open" style="margin-bottom:14px">➕ הוספת תרומה</button>'
           : ('<div class="sec-title">הוספת תרומה</div>' +
@@ -2120,7 +2152,7 @@
         body.querySelector('#dn-open').onclick = function(){ state.donationsFormOpen = true; renderDonationsTab(content); };
       }
 
-      if (isAdmin) {
+      if (isAdmin && !state.donationsFormOpen) {
         body.querySelector('#dn-filter-site').onchange = function(){ state.donationsFilterSite = this.value; renderDonationsTab(content); };
         body.querySelector('#dn-filter-collected').onchange = function(){ state.donationsFilterCollected = this.value; renderDonationsTab(content); };
       }
@@ -2405,29 +2437,36 @@
       var loginMode = state.campaignSettings ? state.campaignSettings.loginMode : 'none';
       var iAmCampaignManager = !!state.me.isCampaignManager;
 
+      // כרטיס לכל שגריר (לא טבלה) — טבלה עם 6 עמודות לא מתקפלת בצורה שמישה במסך טלפון צר
       body.innerHTML =
-        '<table class="simple"><thead><tr><th>שם</th><th>טלפון</th><th>אנשי קשר</th><th>תפקיד</th><th>תרומות</th><th></th></tr></thead><tbody>' +
         ambs.map(function(a){
-          var roleCell = iAmCampaignManager
-            ? ('<select data-role="' + a.id + '" ' + (a.id === state.me.id ? 'disabled title="לא ניתן לשנות הרשאה לעצמך"' : '') + '>' +
+          var roleBlock = iAmCampaignManager
+            ? ('<div class="field" style="margin:8px 0"><label>תפקיד</label><select data-role="' + a.id + '" ' + (a.id === state.me.id ? 'disabled title="לא ניתן לשנות הרשאה לעצמך"' : '') + '>' +
                 '<option value="none" ' + (!a.isAdmin ? 'selected' : '') + '>שגריר</option>' +
                 '<option value="admin" ' + (a.isAdmin && !a.isCampaignManager ? 'selected' : '') + '>מנהל שגרירים</option>' +
                 '<option value="campaign" ' + (a.isCampaignManager ? 'selected' : '') + '>⭐ מנהל קמפיין</option>' +
-              '</select>')
-            : (a.isCampaignManager ? '⭐ מנהל קמפיין' : (a.isAdmin ? 'מנהל שגרירים' : ''));
+              '</select></div>')
+            : (a.isCampaignManager ? '<div style="margin:8px 0"><span class="badge" style="background:#7c3aed;color:#fff">⭐ מנהל קמפיין</span></div>'
+              : (a.isAdmin ? '<div style="margin:8px 0"><span class="badge">מנהל שגרירים</span></div>' : ''));
           var showRepin = a.isAdmin || a.canEnterDonations || loginMode === 'per_user';
-          var donationsCell = iAmCampaignManager
-            ? ('<label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap"><input type="checkbox" data-donations="' + a.id + '" ' + (a.canEnterDonations ? 'checked' : '') + '> 💰 תרומות</label>')
-            : (a.canEnterDonations ? '💰' : '');
-          return '<tr><td>' + esc(a.name) + '</td><td>' + esc(a.phone || '—') + '</td><td>' + a.contactCount + '</td>' +
-            '<td>' + roleCell + '</td>' +
-            '<td>' + donationsCell + '</td>' +
-            '<td>' +
-              '<button class="link-btn" data-rename="' + a.id + '">✏️ שם</button> ' +
-              (showRepin ? '<button class="link-btn" data-repin="' + a.id + '">🔑 קוד' + (a.hasPin ? '' : ' (חסר)') + '</button> ' : '') +
+          var donationsBlock = iAmCampaignManager
+            ? ('<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px"><input type="checkbox" data-donations="' + a.id + '" ' + (a.canEnterDonations ? 'checked' : '') + '> 💰 מורשה לתעד תרומות</label>')
+            : (a.canEnterDonations ? '<div class="hint" style="margin:0 0 8px">💰 מורשה לתעד תרומות</div>' : '');
+          return '<div class="card" style="margin-bottom:8px">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+              '<div style="font-weight:700">' + esc(a.name) + '</div>' +
+              '<div class="hint" style="margin:0">' + a.contactCount + ' אנשי קשר</div>' +
+            '</div>' +
+            (a.phone ? '<div class="hint" style="margin:2px 0 0">📞 ' + esc(a.phone) + '</div>' : '') +
+            roleBlock +
+            donationsBlock +
+            '<div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">' +
+              '<button class="link-btn" data-rename="' + a.id + '">✏️ שם</button>' +
+              (showRepin ? '<button class="link-btn" data-repin="' + a.id + '">🔑 קוד' + (a.hasPin ? '' : ' (חסר)') + '</button>' : '') +
               (a.id !== state.me.id ? '<button class="link-btn danger" data-del="' + a.id + '">מחיקה</button>' : '') +
-            '</td></tr>';
-        }).join('') + '</tbody></table>' +
+            '</div>' +
+          '</div>';
+        }).join('') +
         '<hr class="divider">' +
         '<div class="sec-title">הוספת שגריר חדש</div>' +
         '<div class="field"><label>שם *</label><input id="na-name"></div>' +
