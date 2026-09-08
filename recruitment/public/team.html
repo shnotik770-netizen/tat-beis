@@ -50,6 +50,7 @@
     background:var(--gold);color:#3a2a04;border:none;font-size:22px;box-shadow:0 4px 14px rgba(120,90,20,.4);
     display:flex;align-items:center;justify-content:center;cursor:pointer}
   .fab.fab-cash{background:var(--success);color:#fff;box-shadow:0 4px 14px rgba(22,101,52,.4)}
+  .fab.fab-ambassador{background:var(--info);color:#fff;box-shadow:0 4px 14px rgba(37,99,235,.4)}
 
   .toast{position:fixed;bottom:150px;right:50%;transform:translateX(50%) translateY(10px);max-width:340px;
     width:calc(100% - 32px);background:var(--navy);color:#fff;padding:14px 18px;border-radius:14px;
@@ -489,6 +490,7 @@
     else if (state.tab === 'campaign') fabMode = 'none';
 
     fab.classList.toggle('fab-cash', fabMode === 'cash');
+    fab.classList.toggle('fab-ambassador', fabMode === 'ambassador');
     fab.style.display = fabMode === 'none' ? 'none' : '';
     if (fabMode === 'cash') {
       fab.title = 'הוספת תרומה';
@@ -2009,7 +2011,15 @@
     var expanded = !!state.donationsExpandedIds[d.id];
     var editing = String(state.donationsEditingId) === String(d.id);
     var locked = !isAdmin && (d.collectedBy || d.enteredToSite);
-    var statusBadge = isAdmin ? (' ' + (d.collectedBy ? '✔' : '⏳') + (d.enteredToSite ? ' 🌐' : '')) : '';
+    // סימון מהיר של "נאסף"/"הוכנס לאתר" ישירות מהשורה המכווצת — בלי צורך לפתוח את הפירוט
+    var statusBadge = isAdmin ?
+      '<button class="link-btn" data-don-toggle-collected="' + d.id + '" style="font-size:14px;padding:0 2px" title="' +
+        (d.collectedBy ? ('נאסף אצל ' + esc(d.collectedBy.name) + ' — לחיצה לשינוי') : 'טרם נאסף — לחיצה לסימון שנאסף על ידך') + '">' +
+        (d.collectedBy ? '✔' : '⏳') + '</button>' +
+      '<button class="link-btn" data-don-toggle-site="' + d.id + '" style="font-size:14px;padding:0 2px" title="' +
+        (d.enteredToSite ? 'הוכנס לאתר — לחיצה לביטול' : 'טרם הוכנס לאתר — לחיצה לסימון') + '">' +
+        (d.enteredToSite ? '🌐' : '⚪') + '</button>'
+      : '';
 
     var summary =
       '<button class="link-btn" data-don-toggle="' + d.id + '" style="font-size:15px;line-height:1;padding:0 4px">' + (expanded ? '▾' : '▸') + '</button>' +
@@ -2204,6 +2214,35 @@
         };
       });
 
+      Array.prototype.forEach.call(body.querySelectorAll('[data-don-toggle-collected]'), function(btn){
+        btn.onclick = function(ev){
+          ev.stopPropagation();
+          var id = btn.getAttribute('data-don-toggle-collected');
+          var d = donations.find(function(x){ return String(x.id) === id; });
+          if (!d) return;
+          var newVal;
+          if (!d.collectedBy) {
+            newVal = state.me.id;
+          } else if (d.collectedBy.id === state.me.id) {
+            newVal = null;
+          } else {
+            if (!confirm('כבר מסומן כנאסף אצל ' + d.collectedBy.name + '. לשנות לאצלך?')) return;
+            newVal = state.me.id;
+          }
+          api('/donations/' + id, {method:'PATCH', body: JSON.stringify({collectedBy: newVal})})
+            .then(function(){ renderDonationsTab(content); }).catch(function(e){ alert(e.message); });
+        };
+      });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-don-toggle-site]'), function(btn){
+        btn.onclick = function(ev){
+          ev.stopPropagation();
+          var id = btn.getAttribute('data-don-toggle-site');
+          var d = donations.find(function(x){ return String(x.id) === id; });
+          if (!d) return;
+          api('/donations/' + id, {method:'PATCH', body: JSON.stringify({enteredToSite: !d.enteredToSite})})
+            .then(function(){ renderDonationsTab(content); }).catch(function(e){ alert(e.message); });
+        };
+      });
       Array.prototype.forEach.call(body.querySelectorAll('[data-don-collected]'), function(sel){
         sel.onchange = function(){
           api('/donations/' + sel.getAttribute('data-don-collected'), {method:'PATCH', body: JSON.stringify({collectedBy: sel.value || null})})
