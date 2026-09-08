@@ -1364,10 +1364,12 @@ function renderLedger(data) {
   let parentHtml = '';
   if(s.dadName||s.momName){
     parentHtml = '<div style="background:var(--bg);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:13px">';
-    if(s.dadName) parentHtml += '<div style="display:flex;justify-content:space-between;align-items:center">אב: <strong>'+s.dadName+'</strong>'+(s.dadPhone?' · '+s.dadPhone:'')+
-      (s.dadPhone?' <a class="btn b-g b-sm" href="'+waLink(s.dadPhone, buildWaMsg(s.id))+'" target="_blank">💬</a>':'')+'</div>';
-    if(s.momName) parentHtml += '<div style="display:flex;justify-content:space-between;align-items:center">אם: <strong>'+s.momName+'</strong>'+(s.momPhone?' · '+s.momPhone:'')+
-      (s.momPhone?' <a class="btn b-g b-sm" href="'+waLink(s.momPhone, buildWaMsg(s.id))+'" target="_blank">💬</a>':'')+'</div>';
+    // התווית+שם+טלפון נעטפים ב-span אחד (צד ימין) וכפתור הוואטסאפ לבד (צד שמאל) — כך שם ההורה
+    // לא "נזרק" לצד שמאל עם רווח מכוער כשאין טלפון
+    if(s.dadName) parentHtml += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>אב: <strong>'+esc(s.dadName)+'</strong>'+(s.dadPhone?' · '+esc(s.dadPhone):'')+'</span>'+
+      (s.dadPhone?'<a class="btn b-g b-sm" href="'+waLink(s.dadPhone, buildWaMsg(s.id))+'" target="_blank">💬</a>':'')+'</div>';
+    if(s.momName) parentHtml += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>אם: <strong>'+esc(s.momName)+'</strong>'+(s.momPhone?' · '+esc(s.momPhone):'')+'</span>'+
+      (s.momPhone?'<a class="btn b-g b-sm" href="'+waLink(s.momPhone, buildWaMsg(s.id))+'" target="_blank">💬</a>':'')+'</div>';
     parentHtml += '</div>';
   }
   const dispBalance = famSettled ? 0 : data.totalBalance;
@@ -1454,7 +1456,7 @@ function renderFamilyLedger(data){
   const netBanner = data.familyNet>0
     ? '<div class="card" style="border-right:3px solid var(--red);background:var(--redl);margin-bottom:12px"><strong style="color:var(--red)">⚠️ למשפחה חוב פתוח של ₪'+data.familyNet.toLocaleString()+'</strong></div>'
     : (data.familyNet<0
-      ? '<div class="card" style="border-right:3px solid var(--amb);background:var(--ambl);margin-bottom:12px"><strong style="color:var(--amb)">💰 למשפחה זכות של ₪'+Math.abs(data.familyNet).toLocaleString()+'</strong></div>'
+      ? '<div class="card" style="border-right:3px solid var(--amb);background:var(--ambl);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><strong style="color:var(--amb)">💰 למשפחה זכות של ₪'+Math.abs(data.familyNet).toLocaleString()+'</strong><button class="btn b-g b-sm" onclick="convertFamilyCredit()">💝 המר לתרומה</button></div>'
       : '<div class="card" style="border-right:3px solid var(--grn);background:var(--grnl);margin-bottom:12px"><strong style="color:var(--grn)">✅ המשפחה מסולקת</strong></div>');
 
   document.getElementById('modal').innerHTML =
@@ -1483,6 +1485,22 @@ function openPayMForFamilyLedger(){
   if(!window._familyData) return;
   const ids = window._familyData.members.map(function(m){return m.student.id;});
   openPayMForFamily(ids);
+}
+// המרת זכות המשפחה לתרומה מתוך הכרטסת המשפחתית עצמה (כשיש עודף תשלום)
+function convertFamilyCredit(){
+  const data = window._familyData;
+  if(!data || !(data.familyNet<0) || !data.members.length) return;
+  const credit = Math.round(Math.abs(data.familyNet)*100)/100;
+  const anchor = data.members[0].student.id;
+  const amtStr = prompt('סכום להמרה לתרומה (מתוך זכות ₪'+credit.toLocaleString()+'):', credit);
+  if(amtStr===null) return;
+  const amt = parseFloat(amtStr)||0;
+  if(amt<=0){ toast('סכום לא תקין','err'); return; }
+  google.script.run.withSuccessHandler(function(r){
+    if(r&&!r.ok){ toast(r.err,'err'); return; }
+    toast('הומרה תרומה ₪'+r.converted.toLocaleString()+' ✓','ok');
+    openFamilyLedger(anchor); // רענון הכרטסת המשפחתית
+  }).withFailureHandler(function(e){ toast(e.message,'err'); }).convertCreditToDonation(anchor, amt, 'תרומה');
 }
 function delStFromFamily(id){
   const s = D.students.filter(function(x){return x.id===id;})[0];
@@ -2598,16 +2616,45 @@ function offerDonationIfCredit(sid){
 // ── Debts ──
 let debtSortCol = 'oldest', debtSortDir = 'asc', debtViewMode = 'child';
 let debtTitleFilter = []; // כותרות דרישות פתוחות שסומנו לסינון (ריק = הכל)
-function toggleDebtTitleEl(el){
-  const t = el.getAttribute('data-title');
-  const i = debtTitleFilter.indexOf(t);
-  if(i>-1) debtTitleFilter.splice(i,1); else debtTitleFilter.push(t);
-  el.classList.toggle('on');
-  renderDebtsResults();
+// תפריט סינון בסגנון אקסל על כותרת עמודת "דרישות פתוחות": לחיצה על הכותרת פותחת רשימת תיבות-סימון
+// של כל הדרישות הפתוחות, לבחירה אילו להציג. ממוקם ב-position:fixed כדי שלא ייחתך בתוך גלילת הטבלה.
+function openDebtTitleFilterMenu(thEl){
+  closeDebtTitleMenu();
+  const all = allDebts();
+  const titles = [...new Set(all.reduce(function(a,x){return a.concat(x.unpaidDemands||[]);},[]))].sort(function(a,b){return a.localeCompare(b,'he');});
+  if(!titles.length){ toast('אין דרישות פתוחות','ok'); return; }
+  const box = document.createElement('div');
+  box.id = 'debtTitleMenu'; box.className = 'card';
+  box.style.cssText = 'position:fixed;z-index:300;max-height:60vh;overflow-y:auto;padding:8px;min-width:210px;box-shadow:var(--shm);background:var(--card)';
+  box.innerHTML =
+    '<div style="display:flex;gap:6px;margin-bottom:6px">' +
+      '<button class="btn b-h b-sm" onclick="debtTitleMenuAll(true)">בחר הכל</button>' +
+      '<button class="btn b-h b-sm" onclick="debtTitleMenuAll(false)">נקה</button>' +
+    '</div>' +
+    titles.map(function(t){ return '<label style="display:flex;align-items:center;gap:6px;padding:3px 2px;cursor:pointer;font-size:13px"><input type="checkbox" class="dtm-cb" value="'+esc(t)+'" style="width:auto"'+(debtTitleFilter.indexOf(t)>-1?' checked':'')+'>'+esc(t)+'</label>'; }).join('') +
+    '<div style="display:flex;gap:6px;margin-top:8px;justify-content:flex-end"><button class="btn b-h b-sm" onclick="closeDebtTitleMenu()">ביטול</button><button class="btn b-p b-sm" onclick="applyDebtTitleMenu()">החל</button></div>';
+  document.body.appendChild(box);
+  const rect = thEl.getBoundingClientRect();
+  box.style.top = (rect.bottom+2)+'px';
+  box.style.right = Math.max(4, window.innerWidth - rect.right)+'px';
+  setTimeout(function(){ document.addEventListener('mousedown', debtTitleMenuOutside); }, 0);
 }
-function clearDebtTitleFilter(){
-  debtTitleFilter = [];
-  renderDebts(); // בונה מחדש כדי לאפס את מצב הצ׳יפים
+function debtTitleMenuOutside(e){
+  const box = document.getElementById('debtTitleMenu');
+  if(box && !box.contains(e.target)) closeDebtTitleMenu();
+}
+function closeDebtTitleMenu(){
+  const box = document.getElementById('debtTitleMenu');
+  if(box) box.remove();
+  document.removeEventListener('mousedown', debtTitleMenuOutside);
+}
+function debtTitleMenuAll(on){
+  Array.prototype.slice.call(document.querySelectorAll('#debtTitleMenu .dtm-cb')).forEach(function(cb){ cb.checked = on; });
+}
+function applyDebtTitleMenu(){
+  debtTitleFilter = Array.prototype.slice.call(document.querySelectorAll('#debtTitleMenu .dtm-cb:checked')).map(function(cb){ return cb.value; });
+  closeDebtTitleMenu();
+  renderDebts(); // בונה מחדש כדי לעדכן את סימון הכותרת (מסונן/לא) ואת התוצאות
 }
 // האם לתלמיד/משפחה יש דרישה פתוחה מאחת הכותרות שסומנו (ריק = מציג הכל)
 function matchesDebtTitle(s){
@@ -2720,14 +2767,7 @@ function renderDebts(filter, clsFilter) {
   const sorted = sortDebtList(displayList.filter(matchesDebtTitle));
 
   const rows = sorted.map(debtRowHtml).join('');
-  // צ׳יפים לסינון לפי כותרת דרישה פתוחה — מכל החייבים (לא רק המסוננים כרגע)
-  const allTitles = [...new Set(all.reduce(function(a,x){return a.concat(x.unpaidDemands||[]);},[]))].sort(function(a,b){return a.localeCompare(b,'he');});
-  const titleChips = allTitles.length ?
-    ('<div class="fg" style="margin-bottom:10px"><label>סינון לפי דרישה פתוחה' +
-      (debtTitleFilter.length?' <button class="btn b-h b-sm" onclick="clearDebtTitleFilter()">נקה סינון ✕</button>':'') +
-     '</label><div class="chips">' +
-      allTitles.map(function(t){ return '<span class="chip'+(debtTitleFilter.indexOf(t)>-1?' on':'')+'" data-title="'+esc(t)+'" onclick="toggleDebtTitleEl(this)">'+esc(t)+'</span>'; }).join('') +
-     '</div></div>') : '';
+  const titleFilterHdr = 'דרישות פתוחות ' + (debtTitleFilter.length ? '<span style="color:var(--blue)">▼ ('+debtTitleFilter.length+')</span>' : '<span class="t2">▽</span>');
 
   document.getElementById('pg').innerHTML =
     '<div class="stats" style="margin-bottom:12px">' +
@@ -2742,14 +2782,13 @@ function renderDebts(filter, clsFilter) {
       '<button class="btn b-h b-sm" onclick="openCreditsModal()">💝 זכויות</button>' +
       '<button class="btn b-h b-sm" onclick="openExportDebt()">📤 ייצוא</button>' +
     '</div>' +
-    titleChips +
     '<div class="card" style="padding:0;overflow-x:auto"><table style="min-width:560px"><thead><tr>' +
       '<th style="cursor:pointer" onclick="setDebtSort(\'name\')">שם'+sortIcon('name')+'</th>' +
       '<th style="cursor:pointer" onclick="setDebtSort(\'class\')">כיתה'+sortIcon('class')+'</th>' +
       '<th style="cursor:pointer" onclick="setDebtSort(\'debt\')">חוב'+sortIcon('debt')+'</th>' +
       '<th style="cursor:pointer" onclick="setDebtSort(\'oldest\')">חוב ראשון'+sortIcon('oldest')+'</th>' +
-      '<th>דרישות פתוחות</th><th></th></tr></thead>' +
-    '<tbody id="dbTbody">'+(rows || '<tr><td colspan="6" class="empty">אין חובות פתוחים 🎉</td></tr>')+'</tbody></table></div>';
+      '<th style="cursor:pointer;white-space:nowrap" title="סינון לפי דרישה" onclick="openDebtTitleFilterMenu(this)">'+titleFilterHdr+'</th><th></th></tr></thead>' +
+    '<tbody id="dbTbody">'+(rows || '<tr><td colspan="6" class="empty">'+(debtTitleFilter.length?'אין חובות תואמים לסינון':'אין חובות פתוחים 🎉')+'</td></tr>')+'</tbody></table></div>';
 }
 function renderDebtsResults(){
   const filter = document.getElementById('dbSearch').value;
@@ -2814,7 +2853,7 @@ function renderCreditsModal(list){
   window._creditsData = list || [];
   const rows = window._creditsData.map(function(c,i){
     return '<div class="p-row" style="flex-wrap:wrap;gap:6px;align-items:center">' +
-      '<span style="flex:1;min-width:140px"><strong>'+esc(c.name)+'</strong> <span class="badge">'+esc(c.class||'—')+(c.institution?' · '+esc(c.institution):'')+'</span></span>' +
+      '<span style="flex:1;min-width:140px;cursor:pointer" title="פתח כרטסת משפחתית" onclick=\'closeM();openFamilyLedger("'+c.studentId+'")\'><strong>'+esc(c.name)+'</strong> <span class="badge">'+esc(c.class||'—')+(c.institution?' · '+esc(c.institution):'')+'</span> 📒</span>' +
       '<span class="badge am">זכות ₪'+c.credit.toLocaleString()+'</span>' +
       '<input type="number" id="crAmt_'+i+'" value="'+c.credit+'" style="width:90px">' +
       '<button class="btn b-g b-sm" onclick="doConvertCredit('+i+')">💝 המר לתרומה</button>' +
