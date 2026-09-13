@@ -21,6 +21,18 @@ function fmtD(d) {
   const yyyy = dt.getFullYear();
   return `${dd}/${mm}/${yyyy}`;
 }
+// תאריך + שעה לתצוגה ביומן פעילות: DD/MM/YYYY HH:MM
+function fmtDT(d) {
+  if (!d) return '';
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return '';
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const yyyy = dt.getFullYear();
+  const hh = String(dt.getHours()).padStart(2, '0');
+  const mi = String(dt.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
+}
 function rowToDemand(r) {
   return {
     id: r.id, title: r.title, amount: parseFloat(r.amount) || 0,
@@ -66,6 +78,6 @@ async function getAllPending() {
 }
 
 module.exports = {
-  rowToStudent, rowToCategory, rowToDemand, rowToPayment, rowToPending, fmtD,
+  rowToStudent, rowToCategory, rowToDemand, rowToPayment, rowToPending, fmtD, fmtDT,
   getAllStudents, getAllCategories, getAllDemands, getAllPayments, getAllPending
 };

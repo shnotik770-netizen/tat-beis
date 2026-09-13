@@ -61,6 +61,18 @@ CREATE TABLE IF NOT EXISTS pending_payments (
   notes         TEXT NOT NULL DEFAULT ''
 );
 
+-- יומן פעילות: מתעד כל פעולת שינוי (הוספה/עדכון/מחיקה) שמבוצעת במערכת, לצורך מעקב ושחזור מידע
+CREATE TABLE IF NOT EXISTS activity_log (
+  id            TEXT PRIMARY KEY,
+  ts            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  action        TEXT NOT NULL DEFAULT '',
+  entity        TEXT NOT NULL DEFAULT '',
+  entity_id     TEXT NOT NULL DEFAULT '',
+  summary       TEXT NOT NULL DEFAULT '',
+  details       JSONB NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_activity_log_ts ON activity_log (ts DESC);
+
 CREATE INDEX IF NOT EXISTS idx_demands_student_ids ON demands USING GIN (student_ids);
 CREATE INDEX IF NOT EXISTS idx_payments_student_ids ON payments USING GIN (student_ids);
 CREATE INDEX IF NOT EXISTS idx_payments_demand_ids ON payments USING GIN (demand_ids);

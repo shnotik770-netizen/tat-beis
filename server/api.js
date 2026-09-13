@@ -3,6 +3,42 @@ const logic = require('./logic');
 const da = require('./db-access');
 
 // ══════════════════════════════════════════════════════════════
+// יומן פעילות — תיעוד כל פעולת שינוי
+// ══════════════════════════════════════════════════════════════
+// רושם שורה ביומן לכל פעולה משנה (הוספה/עדכון/מחיקה). עטוף ב-try/catch כדי שכשל ברישום
+// לעולם לא יפיל את הפעולה עצמה — התיעוד חשוב אבל משני לפעולה.
+async function logAction(action, entity, entityId, summary, details) {
+  try {
+    await pool.query(
+      'INSERT INTO activity_log (id, action, entity, entity_id, summary, details) VALUES ($1,$2,$3,$4,$5,$6)',
+      [logic.uid('L'), action || '', entity || '', entityId || '', summary || '', JSON.stringify(details || {})]
+    );
+  } catch (e) {
+    console.error('activity_log write failed:', e.message);
+  }
+}
+
+// שם תלמיד לצורך רישום קריא ביומן
+async function studentNameById(id) {
+  try {
+    const { rows } = await pool.query('SELECT first_name, last_name FROM students WHERE id=$1', [id]);
+    if (!rows.length) return id;
+    return ((rows[0].first_name || '') + ' ' + (rows[0].last_name || '')).trim() || id;
+  } catch (e) {
+    return id;
+  }
+}
+
+async function getActivityLog(limit) {
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 300, 1), 2000);
+  const { rows } = await pool.query('SELECT * FROM activity_log ORDER BY ts DESC LIMIT $1', [lim]);
+  return rows.map(r => ({
+    id: r.id, ts: da.fmtDT(r.ts), action: r.action, entity: r.entity,
+    entityId: r.entity_id, summary: r.summary, details: r.details || {}
+  }));
+}
+
+// ══════════════════════════════════════════════════════════════
 // אבחון
 // ══════════════════════════════════════════════════════════════
 async function pingTest() {
@@ -50,6 +86,7 @@ async function addStudent(data) {
   // השלמת פרטי הורים בין בני משפחה (טלפון משותף — מספיק הורה אחד תואם), משני הכיוונים
   const allStudents = await da.getAllStudents();
   await mergeFamilyParentInfoFor(id, allStudents);
+  await logAction('הוספה', 'תלמיד', id, 'נוסף תלמיד: ' + ((data.firstName || '') + ' ' + (data.lastName || '')).trim(), { class: data.class || '' });
   return { ok: true, id };
 }
 
@@ -72,6 +109,7 @@ async function updateStudent(data) {
   // השלמת פרטי הורים בין בני משפחה (טלפון משותף — מספיק הורה אחד תואם): ממלא רק שדות ריקים בשני הכיוונים
   const allStudents = await da.getAllStudents();
   await mergeFamilyParentInfoFor(data.id, allStudents);
+  await logAction('עדכון', 'תלמיד', data.id, 'עודכן תלמיד: ' + ((data.firstName || '') + ' ' + (data.lastName || '')).trim(), { active: data.active || 'כן' });
   return { ok: true };
 }
 
@@ -110,8 +148,34 @@ async function backfillFamilyParentInfo() {
 }
 
 async function deleteStudent(id) {
+  // תלמיד שכבר יש לו חשבונות (דרישות/תשלומים) אסור למחוק — מאבד היסטוריה פיננסית.
+  // במקום זאת מעבירים אותו למצב "לא פעיל". החסימה נאכפת גם בשרת, לא רק ב-UI.
+  const [demands, payments] = await Promise.all([da.getAllDemands(), da.getAllPayments()]);
+  const hasTx = demands.some(d => d.studentIds.includes(id)) || payments.some(p => p.studentIds.includes(id));
+  if (hasTx) return { ok: false, hasTransactions: true, err: 'לתלמיד זה יש דרישות או תשלומים רשומים — לא ניתן למחוק אותו. אפשר להעביר אותו למצב "לא פעיל".' };
+
+  const name = await studentNameById(id);
   const { rowCount } = await pool.query('DELETE FROM students WHERE id=$1', [id]);
-  return { ok: !!rowCount };
+  if (!rowCount) return { ok: false, err: 'תלמיד לא נמצא' };
+  // ניקוי שיוך התלמיד מהסיווגים (אין לו עסקאות, אבל ייתכן שהוא רשום בסיווג)
+  const cats = await da.getAllCategories();
+  for (const c of cats) {
+    if (c.studentIds.includes(id)) {
+      await pool.query('UPDATE categories SET student_ids=$2 WHERE id=$1', [c.id, c.studentIds.filter(x => x !== id)]);
+    }
+  }
+  await logAction('מחיקה', 'תלמיד', id, 'נמחק תלמיד: ' + name, {});
+  return { ok: true };
+}
+
+// העברת תלמיד למצב פעיל/לא פעיל (חלופה למחיקה כשיש לו חשבונות)
+async function setStudentActive(id, active) {
+  const val = (active === 'לא') ? 'לא' : 'כן';
+  const { rowCount } = await pool.query('UPDATE students SET active=$2 WHERE id=$1', [id, val]);
+  if (!rowCount) return { ok: false, err: 'תלמיד לא נמצא' };
+  const name = await studentNameById(id);
+  await logAction('עדכון', 'תלמיד', id, 'תלמיד ' + name + ' הועבר למצב ' + (val === 'כן' ? 'פעיל' : 'לא פעיל'), { active: val });
+  return { ok: true };
 }
 
 async function importStudentsFromPaste(rawText) {
@@ -142,6 +206,7 @@ async function importStudentsFromPaste(rawText) {
     added++;
   }
   if (added) await backfillFamilyParentInfo(); // משלים פרטי הורים חסרים בין אחים שנוספו/קיימים
+  if (added) await logAction('ייבוא', 'תלמיד', '', 'ייבוא תלמידים: נוספו ' + added + (skipped ? ', דולגו ' + skipped : ''), { added, skipped });
   return { ok: true, added, skipped, skippedReasons: skippedReasons.slice(0, 20) };
 }
 
@@ -164,6 +229,7 @@ async function addCategory(data) {
   await pool.query('INSERT INTO categories (id, name, description, student_ids) VALUES ($1,$2,$3,$4)',
     [id, data.name || '', data.desc || '', data.studentIds || []]);
   await syncCatStudents(id, data.studentIds || [], []);
+  await logAction('הוספה', 'סיווג', id, 'נוסף סיווג: ' + (data.name || ''), {});
   return { ok: true, id };
 }
 async function updateCategory(data) {
@@ -173,11 +239,15 @@ async function updateCategory(data) {
   await pool.query('UPDATE categories SET name=$2, description=$3, student_ids=$4 WHERE id=$1',
     [data.id, data.name || '', data.desc || '', data.studentIds || []]);
   await syncCatStudents(data.id, data.studentIds || [], oldIds);
+  await logAction('עדכון', 'סיווג', data.id, 'עודכן סיווג: ' + (data.name || ''), {});
   return { ok: true };
 }
 async function deleteCategory(id) {
+  const { rows } = await pool.query('SELECT name FROM categories WHERE id=$1', [id]);
   const { rowCount } = await pool.query('DELETE FROM categories WHERE id=$1', [id]);
-  return { ok: !!rowCount };
+  if (!rowCount) return { ok: false };
+  await logAction('מחיקה', 'סיווג', id, 'נמחק סיווג: ' + ((rows[0] && rows[0].name) || id), {});
+  return { ok: true };
 }
 async function syncCatStudents(catId, newIds, oldIds) {
   const students = await da.getAllStudents();
@@ -207,6 +277,7 @@ async function addDemand(data) {
     [id, data.title || '', parseFloat(data.amount) || 0, data.dueDate ? new Date(data.dueDate) : null,
      data.categoryIds || [], [...studentIds], data.notes || '', !!data.isFamily]
   );
+  await logAction('הוספה', 'דרישה', id, 'נוספה דרישה: ' + (data.title || '') + ' · ₪' + (parseFloat(data.amount) || 0).toLocaleString('he-IL') + ' · ' + studentIds.size + ' תלמידים', { amount: parseFloat(data.amount) || 0, students: studentIds.size });
   return { ok: true, id };
 }
 
@@ -216,14 +287,18 @@ async function updateDemand(data) {
   if (data.isFamily !== undefined) { sets.push(`is_family=$${params.length + 1}`); params.push(!!data.isFamily); }
   if (data.studentIds !== undefined) { sets.push(`student_ids=$${params.length + 1}`); params.push(data.studentIds); }
   const { rowCount } = await pool.query(`UPDATE demands SET ${sets.join(', ')} WHERE id=$1`, params);
-  return rowCount ? { ok: true } : { ok: false, err: 'דרישה לא נמצאה' };
+  if (!rowCount) return { ok: false, err: 'דרישה לא נמצאה' };
+  await logAction('עדכון', 'דרישה', data.id, 'עודכנה דרישה: ' + (data.title || '') + ' · ₪' + (parseFloat(data.amount) || 0).toLocaleString('he-IL'), { amount: parseFloat(data.amount) || 0 });
+  return { ok: true };
 }
 
 async function removeStudentFromDemand(demandId, studentId) {
-  const { rows } = await pool.query('SELECT student_ids FROM demands WHERE id=$1', [demandId]);
+  const { rows } = await pool.query('SELECT student_ids, title FROM demands WHERE id=$1', [demandId]);
   if (!rows.length) return { ok: false };
   const updated = (rows[0].student_ids || []).filter(x => x !== studentId);
   await pool.query('UPDATE demands SET student_ids=$2 WHERE id=$1', [demandId, updated]);
+  const name = await studentNameById(studentId);
+  await logAction('עדכון', 'דרישה', demandId, 'הוסר תלמיד ' + name + ' מדרישה: ' + (rows[0].title || ''), {});
   return { ok: true };
 }
 
@@ -240,6 +315,8 @@ async function splitStudentFromDemand(demandId, studentId, newAmount) {
      VALUES ($1,$2,$3, now(), $4, '{}', $5, $6, $7)`,
     [logic.uid('D'), orig.title, parseFloat(newAmount) || 0, orig.due_date, [studentId], orig.notes, orig.is_family]
   );
+  const name = await studentNameById(studentId);
+  await logAction('עדכון', 'דרישה', demandId, 'פוצל תלמיד ' + name + ' מדרישה "' + (orig.title || '') + '" · סכום חדש ₪' + (parseFloat(newAmount) || 0).toLocaleString('he-IL'), { amount: parseFloat(newAmount) || 0 });
   return { ok: true };
 }
 
@@ -257,13 +334,16 @@ async function addDemandVaried(data) {
     );
     ids.push(id);
   }
+  await logAction('הוספה', 'דרישה', '', 'נוספו ' + ids.length + ' דרישות "' + (data.title || '') + '" (סכומים שונים)', { count: ids.length });
   return { ok: true, count: ids.length, ids };
 }
 
 async function deleteDemand(id) {
+  const { rows } = await pool.query('SELECT title, amount FROM demands WHERE id=$1', [id]);
   const { rowCount } = await pool.query('DELETE FROM demands WHERE id=$1', [id]);
   if (!rowCount) return { ok: false };
   await unlinkDemandFromPayments(id); // הכסף לא נעלם — הופך לזיכוי כללי
+  await logAction('מחיקה', 'דרישה', id, 'נמחקה דרישה: ' + ((rows[0] && rows[0].title) || id) + (rows[0] ? ' · ₪' + (parseFloat(rows[0].amount) || 0).toLocaleString('he-IL') : ''), {});
   return { ok: true };
 }
 async function unlinkDemandFromPayments(demandId) {
@@ -307,12 +387,17 @@ async function addPayment(data) {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     [id, incomingDate, data.payer || '', studentIds, data.demandIds || [], total, JSON.stringify(amounts), data.method || 'מזומן', data.notes || '']
   );
+  await logAction('הוספה', 'תשלום', id, 'נרשם תשלום ₪' + total.toLocaleString('he-IL') + (data.payer ? ' · ' + data.payer : '') + ' · ' + incomingDateStr, { total, students: studentIds.length });
   return { ok: true, id };
 }
 
 async function deletePayment(id) {
+  const { rows } = await pool.query('SELECT total, payer, date FROM payments WHERE id=$1', [id]);
   const { rowCount } = await pool.query('DELETE FROM payments WHERE id=$1', [id]);
-  return { ok: !!rowCount };
+  if (!rowCount) return { ok: false };
+  const p = rows[0] || {};
+  await logAction('מחיקה', 'תשלום', id, 'נמחק תשלום ₪' + (parseFloat(p.total) || 0).toLocaleString('he-IL') + (p.payer ? ' · ' + p.payer : '') + (p.date ? ' · ' + da.fmtD(p.date) : ''), {});
+  return { ok: true };
 }
 
 async function updatePayment(data) {
@@ -333,6 +418,7 @@ async function updatePayment(data) {
   if (data.date) { sets.push(`date=$${params.length + 1}`); params.push(new Date(data.date)); }
   if (data.method !== undefined) { sets.push(`method=$${params.length + 1}`); params.push(data.method); }
   await pool.query(`UPDATE payments SET ${sets.join(', ')} WHERE id=$1`, params);
+  await logAction('עדכון', 'תשלום', data.id, 'עודכן תשלום ₪' + total.toLocaleString('he-IL') + (data.payer !== undefined && data.payer ? ' · ' + data.payer : ''), { total });
   return { ok: true };
 }
 
@@ -555,6 +641,7 @@ async function importPendingFromPaste(rawText) {
       [logic.uid('N'), dateVal, payerRaw || '', amount, methodRaw || '', notesRaw || '']);
     added++;
   }
+  if (added) await logAction('ייבוא', 'תשלום ממתין', '', 'ייבוא תשלומים ממתינים: נוספו ' + added + (skipped ? ', דולגו ' + skipped : ''), { added, skipped });
   return { ok: true, added, skipped, skippedReasons: skippedReasons.slice(0, 20) };
 }
 
@@ -578,12 +665,17 @@ async function assignPendingPayment(pendingId, assignment) {
      total, JSON.stringify(amounts), assignment.method || pendingRow.method || 'לא צויין', pendingRow.notes || '']
   );
   await pool.query('DELETE FROM pending_payments WHERE id=$1', [pendingId]);
+  await logAction('שיוך', 'תשלום', id, 'שויך תשלום ₪' + total.toLocaleString('he-IL') + (pendingRow.payer ? ' · ' + pendingRow.payer : '') + ' לתלמיד/ים', { total });
   return { ok: true, id };
 }
 
 async function deletePendingPayment(pendingId) {
+  const { rows } = await pool.query('SELECT amount, payer FROM pending_payments WHERE id=$1', [pendingId]);
   const { rowCount } = await pool.query('DELETE FROM pending_payments WHERE id=$1', [pendingId]);
-  return { ok: !!rowCount };
+  if (!rowCount) return { ok: false };
+  const p = rows[0] || {};
+  await logAction('מחיקה', 'תשלום ממתין', pendingId, 'נמחק תשלום ממתין ₪' + (parseFloat(p.amount) || 0).toLocaleString('he-IL') + (p.payer ? ' · ' + p.payer : ''), {});
+  return { ok: true };
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -700,6 +792,7 @@ async function applyReconciliation(studentIds) {
       }
     }
   }
+  if (splitCount || coveredCount) await logAction('התאמה', 'תשלום', '', 'התאמת זיכויים: פוצלו ' + splitCount + ' תשלומים, שויכו ' + coveredCount + ' חלקים לדרישות', { splitCount, coveredCount });
   return { ok: true, splitCount, coveredCount };
 }
 
@@ -761,6 +854,7 @@ async function convertCreditToDonation(studentId, amount, note) {
      VALUES ($1,$2,$3, now(), $4,$5,$6,$7,$8)`,
     [id, title, amt, null, [], [studentId], 'המרת זכות לתרומה', false]
   );
+  await logAction('המרה', 'תרומה', id, 'הומרה זכות לתרומה: ₪' + amt.toLocaleString('he-IL') + ' · ' + (st.firstName + ' ' + st.lastName).trim(), { amount: amt });
   return { ok: true, id, converted: amt };
 }
 
@@ -790,12 +884,13 @@ async function getDonationsReport() {
 
 module.exports = {
   pingTest, getAllData,
-  addStudent, updateStudent, deleteStudent, importStudentsFromPaste, backfillFamilyParentInfo,
+  addStudent, updateStudent, deleteStudent, setStudentActive, importStudentsFromPaste, backfillFamilyParentInfo,
   addCategory, updateCategory, deleteCategory,
   addDemand, updateDemand, removeStudentFromDemand, splitStudentFromDemand, addDemandVaried, deleteDemand,
   addPayment, deletePayment, updatePayment,
   getStudentLedger, getFamilyLedger, getDashboard, getDebtExport,
   getPendingPayments, importPendingFromPaste, assignPendingPayment, deletePendingPayment,
   getReconciliationReport, applyReconciliation,
-  getCreditsReport, convertCreditToDonation, getDonationsReport
+  getCreditsReport, convertCreditToDonation, getDonationsReport,
+  getActivityLog
 };

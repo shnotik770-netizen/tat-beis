@@ -509,6 +509,7 @@ textarea { resize: vertical; line-height: 1.5; }
       <div class="ni" id="n-debt" onclick="go('debt');closeSide()">⚠️ חובות<span class="ni-n" id="debtN" style="display:none">0</span></div>
       <div class="ni" id="n-imp" onclick="go('imp');closeSide()">📥 שיוך תשלומים<span class="ni-n" id="impN" style="display:none">0</span></div>
       <div class="ni" id="n-recon" onclick="go('recon');closeSide()">🔄 התאמת זיכויים</div>
+      <div class="ni" id="n-log" onclick="go('log');closeSide()">📜 יומן פעילות</div>
     </nav>
   </div>
   <div class="side-backdrop" id="sideBackdrop" onclick="closeSide()"></div>
@@ -653,8 +654,8 @@ function closeSide(){
 
 function go(page, stFilter, stCls, stInst) {
   closeFab();
-  ['dash','st','cat','dem','pay','debt','imp','recon'].forEach(function(p){ const el=document.getElementById('n-'+p); if(el) el.classList.toggle('on', p===page); });
-  const titles = {dash:'דשבורד', st:'תלמידים', cat:'סיווגים', dem:'דרישות', pay:'תשלומים', debt:'חובות', imp:'שיוך תשלומים', recon:'התאמת זיכויים'};
+  ['dash','st','cat','dem','pay','debt','imp','recon','log'].forEach(function(p){ const el=document.getElementById('n-'+p); if(el) el.classList.toggle('on', p===page); });
+  const titles = {dash:'דשבורד', st:'תלמידים', cat:'סיווגים', dem:'דרישות', pay:'תשלומים', debt:'חובות', imp:'שיוך תשלומים', recon:'התאמת זיכויים', log:'יומן פעילות'};
   document.getElementById('tbTitle').textContent = titles[page];
   document.getElementById('tbAct').innerHTML = '';
   document.getElementById('pg').innerHTML = '<div class="loading">טוען...</div>';
@@ -666,6 +667,7 @@ function go(page, stFilter, stCls, stInst) {
     else if(page==='pay') renderPayments();
     else if(page==='debt') renderDebts('','');
     else if(page==='recon') renderRecon();
+    else if(page==='log') renderActivityLog();
     else renderImp();
     updNavBadges();
   });
@@ -684,6 +686,69 @@ function updNavBadges(){
   const pn = (D.pending||[]).length;
   const ib = document.getElementById('impN');
   if(ib){ ib.textContent = pn; ib.style.display = pn?'':'none'; }
+}
+
+// ── יומן פעילות ──
+function renderActivityLog(){
+  document.getElementById('tbAct').innerHTML = '<button class="btn b-h" onclick="renderActivityLog()">🔄 רענן</button>';
+  document.getElementById('pg').innerHTML = '<div class="loading">טוען יומן...</div>';
+  google.script.run.withSuccessHandler(function(rows){
+    window._logData = rows || [];
+    window._logFilter = {entity:'', action:'', q:''};
+    _renderLogTable();
+  }).withFailureHandler(function(e){
+    document.getElementById('pg').innerHTML = '<div class="card empty">שגיאה בטעינת היומן: '+esc(e.message)+'</div>';
+  }).getActivityLog(500);
+}
+function logSetFilter(){
+  window._logFilter = {
+    entity: (document.getElementById('logEntity')||{}).value || '',
+    action: (document.getElementById('logAction')||{}).value || '',
+    q: ((document.getElementById('logSearch')||{}).value || '').trim()
+  };
+  _renderLogTable();
+}
+function _logActionColor(a){
+  if(a==='מחיקה') return 'rd';
+  if(a==='הוספה') return 'gr';
+  if(a==='עדכון') return 'am';
+  return '';
+}
+function _renderLogTable(){
+  const all = window._logData || [];
+  const f = window._logFilter || {entity:'',action:'',q:''};
+  const entities = [...new Set(all.map(function(r){return r.entity;}).filter(Boolean))].sort();
+  const actions = [...new Set(all.map(function(r){return r.action;}).filter(Boolean))].sort();
+  const qLower = f.q.toLowerCase();
+  const rows = all.filter(function(r){
+    if(f.entity && r.entity!==f.entity) return false;
+    if(f.action && r.action!==f.action) return false;
+    if(f.q && (r.summary||'').toLowerCase().indexOf(qLower)<0 && (r.ts||'').indexOf(f.q)<0) return false;
+    return true;
+  });
+  const optE = '<option value="">כל הסוגים</option>'+entities.map(function(e){return '<option value="'+esc(e)+'"'+(f.entity===e?' selected':'')+'>'+esc(e)+'</option>';}).join('');
+  const optA = '<option value="">כל הפעולות</option>'+actions.map(function(a){return '<option value="'+esc(a)+'"'+(f.action===a?' selected':'')+'>'+esc(a)+'</option>';}).join('');
+  const trs = rows.map(function(r){
+    return '<tr>' +
+      '<td class="t2" style="white-space:nowrap">'+esc(r.ts||'')+'</td>' +
+      '<td><span class="badge '+_logActionColor(r.action)+'">'+esc(r.action||'')+'</span></td>' +
+      '<td>'+esc(r.entity||'')+'</td>' +
+      '<td>'+esc(r.summary||'')+'</td>' +
+    '</tr>';
+  }).join('');
+  document.getElementById('pg').innerHTML =
+    '<div class="info">יומן זה מתעד כל פעולת שינוי במערכת (הוספה, עדכון ומחיקה). מוצגות '+rows.length+' רשומות אחרונות מתוך '+all.length+' שנטענו.</div>' +
+    '<div class="fg2" style="margin-bottom:10px">' +
+      '<div class="fg"><label>סוג</label><select id="logEntity" onchange="logSetFilter()">'+optE+'</select></div>' +
+      '<div class="fg"><label>פעולה</label><select id="logAction" onchange="logSetFilter()">'+optA+'</select></div>' +
+    '</div>' +
+    '<div class="fg"><label>חיפוש</label><input id="logSearch" value="'+esc(f.q)+'" placeholder="חיפוש בתיאור..." oninput="logSetFilter()"></div>' +
+    '<div class="card" style="padding:0;overflow-x:auto"><table>' +
+    '<thead><tr><th>תאריך ושעה</th><th>פעולה</th><th>סוג</th><th>פרטים</th></tr></thead>' +
+    '<tbody>'+(trs||'<tr><td colspan="4" class="empty">אין רשומות תואמות</td></tr>')+'</tbody></table></div>';
+  // שמירת מיקוד בשדה החיפוש אחרי רינדור מחדש
+  const se = document.getElementById('logSearch');
+  if(se && f.q){ se.focus(); se.setSelectionRange(f.q.length, f.q.length); }
 }
 
 // ── Debt helpers ──
@@ -985,11 +1050,30 @@ function instOpts(sel){
 }
 function delSt(id){
   const s = D.students.filter(function(x){return x.id===id;})[0];
-  if(!confirm('למחוק לצמיתות את '+(s?s.firstName+' '+s.lastName:'תלמיד זה')+'? פעולה זו אינה הפיכה.')) return;
+  const nm = s ? s.firstName+' '+s.lastName : 'תלמיד זה';
+  // תלמיד עם חשבונות אישיים לא נמחק — מוצע להעביר ללא פעיל
+  if(studentHasTransactions(id)){
+    if(!confirm('ל'+nm+' יש דרישות או תשלומים רשומים — לא ניתן למחוק אותו כדי לא לאבד היסטוריה.\n\nלהעביר אותו למצב "לא פעיל" במקום זאת?')) return;
+    google.script.run.withSuccessHandler(function(r){
+      if(r&&!r.ok){ toast(r.err||'שגיאה','err'); return; }
+      toast('הועבר ללא פעיל ✓','ok'); goStudentsKeepFilter();
+    }).withFailureHandler(function(e){ toast(e.message,'err'); }).setStudentActive(id,'לא');
+    return;
+  }
+  if(!confirm('למחוק לצמיתות את '+nm+'? פעולה זו אינה הפיכה.')) return;
   google.script.run.withSuccessHandler(function(r){
-    if(r&&!r.ok){ toast(r.err||'שגיאה','err'); return; }
+    if(r&&!r.ok){
+      if(r.hasTransactions && confirm(r.err+'\n\nלהעביר אותו למצב "לא פעיל"?')){
+        google.script.run.withSuccessHandler(function(r2){
+          if(r2&&!r2.ok){ toast(r2.err||'שגיאה','err'); return; }
+          toast('הועבר ללא פעיל ✓','ok'); goStudentsKeepFilter();
+        }).setStudentActive(id,'לא');
+        return;
+      }
+      toast(r.err||'שגיאה','err'); return;
+    }
     toast('נמחק','ok'); goStudentsKeepFilter();
-  }).deleteStudent(id);
+  }).withFailureHandler(function(e){ toast(e.message,'err'); }).deleteStudent(id);
 }
 
 // משלים פרטי הורים וכתובת חסרים בין אחים בכל בסיס הנתונים (למשל: לתלמיד יש רק שם+טלפון של הורה אחד,
@@ -1321,7 +1405,7 @@ function openEditSt(id) {
     '<div style="font-weight:700;font-size:12.5px;margin-bottom:10px;color:var(--t2)">📇 פרטי מאגר (אופציונלי)</div>' +
     '<div class="fg2"><div class="fg"><label>ת.ז.</label><input id="f_tz" value="'+esc(s.tz)+'"></div><div class="fg"><label>תאריך לידה (לועזי)</label><input id="f_bd" type="date" value="'+isoFromDMY(s.birthDate||'')+'"></div></div>' +
     '<div class="fg"><label>כתובת</label><input id="f_addr" value="'+esc(s.address)+'"></div>' +
-    '<div class="m-foot"><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick=\'saveEditSt("'+id+'")\'>💾 שמור</button></div>');
+    '<div class="m-foot" style="justify-content:space-between"><button class="btn b-r" onclick=\'delStFromEdit("'+id+'")\'>🗑️ מחק תלמיד</button><span><button class="btn b-h" onclick="closeM()">ביטול</button><button class="btn b-p" onclick=\'saveEditSt("'+id+'")\'>💾 שמור</button></span></div>');
 }
 function saveEditSt(id) {
   const d = {id:id, lastName:v('f_last'), firstName:v('f_first'), class:v('f_cls'), active:v('f_act'), categoryIds: pickedChips('stCatPicker'),
@@ -1429,11 +1513,11 @@ function renderFamilyLedger(data){
     if(r.type==='demand'){
       const rowBalance = data.familyNet<=0 ? 0 : r.balance;
       const detailsTxt = '📋 '+esc(r.title)+(rowBalance>0?' · <span class="t2">חוב ₪'+rowBalance.toLocaleString()+'</span>':' · <span class="t2">שולם ✓</span>');
-      const actCell = '<td><button class="btn b-h b-sm" onclick=\'openSplitDemAmt("'+r.id+'","'+r.childId+'",'+r.amount+',"family","'+famAnchorId+'")\'>✏️</button></td>';
+      const actCell = '<td><button class="btn b-h b-sm" onclick=\'openSplitDemAmt("'+r.id+'","'+r.childId+'",'+r.amount+',"family","'+famAnchorId+'")\'>✏️</button> <button class="btn b-r b-sm" title="מחק דרישה" onclick=\'delDemFromFamily("'+r.id+'","'+r.childId+'","'+famAnchorId+'")\'>🗑️</button></td>';
       return '<tr>'+dateCell+childCell+'<td>'+detailsTxt+'</td>'+amtCell+actCell+'</tr>';
     }
     const detailsTxt = '💳 '+(r.payer?'שילם/ה: '+esc(r.payer):'')+(r.method?' · '+esc(r.method):'');
-    const actCell = '<td><button class="btn b-h b-sm" onclick=\'openEditPay("'+r.id+'","family","'+famAnchorId+'")\'>✏️</button></td>';
+    const actCell = '<td><button class="btn b-h b-sm" onclick=\'openEditPay("'+r.id+'","family","'+famAnchorId+'")\'>✏️</button> <button class="btn b-r b-sm" title="מחק תשלום" onclick=\'delPayFromFamily("'+r.id+'","'+famAnchorId+'",'+(r.isShared?'true':'false')+')\'>🗑️</button></td>';
     return '<tr style="background:var(--grnl)">'+dateCell+childCell+'<td>'+detailsTxt+'</td>'+amtCell+actCell+'</tr>';
   }).join('');
 
@@ -1447,10 +1531,8 @@ function renderFamilyLedger(data){
     const mBalance = data.familyNet<=0 ? 0 : m.totalBalance;
     return '<div class="p-row">' +
       '<span style="cursor:pointer" onclick=\'closeM();openLedger("'+s.id+'")\'><strong>'+s.firstName+' '+s.lastName+'</strong> <span class="badge">'+(classKey(s)||'—')+'</span>'+(s.active!=='כן'?' <span class="badge gy">לא פעיל</span>':'')+'</span>' +
-      '<span style="display:flex;align-items:center;gap:6px">' +
-        '<span class="badge '+(mBalance>0?'rd':'gr')+'">'+(mBalance>0?'חוב ₪'+mBalance.toLocaleString():'מסולק ✓')+'</span>' +
-        '<button class="btn b-r b-ic b-sm" title="מחק תלמיד זה" onclick=\'delStFromFamily("'+s.id+'")\'>🗑️</button>' +
-      '</span></div>';
+      '<span class="badge '+(mBalance>0?'rd':'gr')+'">'+(mBalance>0?'חוב ₪'+mBalance.toLocaleString():'מסולק ✓')+'</span>' +
+      '</div>';
   }).join('');
 
   const netBanner = data.familyNet>0
@@ -1502,13 +1584,65 @@ function convertFamilyCredit(){
     openFamilyLedger(anchor); // רענון הכרטסת המשפחתית
   }).withFailureHandler(function(e){ toast(e.message,'err'); }).convertCreditToDonation(anchor, amt, 'תרומה');
 }
-function delStFromFamily(id){
+// בדיקה אם לתלמיד יש חשבונות אישיים (דרישות/תשלומים) — אם כן, אסור למחוק, רק להעביר ללא פעיל
+function studentHasTransactions(id){
+  return D.demands.some(function(d){return d.studentIds.indexOf(id)>-1;}) ||
+         D.payments.some(function(p){return p.studentIds.indexOf(id)>-1;});
+}
+// מחיקת תלמיד מתוך חלון העריכה בלבד: אם יש לו חשבונות — מוצע להעביר ללא פעיל במקום למחוק
+function delStFromEdit(id){
   const s = D.students.filter(function(x){return x.id===id;})[0];
-  if(!confirm('למחוק לצמיתות את '+(s?s.firstName+' '+s.lastName:'תלמיד זה')+'? פעולה זו אינה הפיכה.')) return;
+  const nm = s ? s.firstName+' '+s.lastName : 'תלמיד זה';
+  if(studentHasTransactions(id)){
+    if(!confirm('ל'+nm+' יש דרישות או תשלומים רשומים — לא ניתן למחוק אותו כדי לא לאבד היסטוריה.\n\nלהעביר אותו למצב "לא פעיל" במקום זאת?')) return;
+    google.script.run.withSuccessHandler(function(r){
+      if(r&&!r.ok){ toast(r.err||'שגיאה','err'); return; }
+      closeM(); toast('הועבר ללא פעיל ✓','ok'); goStudentsKeepFilter();
+    }).withFailureHandler(function(e){ toast(e.message,'err'); }).setStudentActive(id,'לא');
+    return;
+  }
+  if(!confirm('למחוק לצמיתות את '+nm+'? פעולה זו אינה הפיכה.')) return;
+  google.script.run.withSuccessHandler(function(r){
+    if(r&&!r.ok){
+      // הגנת שרת: אם בכל זאת נמצאו חשבונות (למשל שינוי במקביל) — הצעה להעביר ללא פעיל
+      if(r.hasTransactions && confirm(r.err+'\n\nלהעביר אותו למצב "לא פעיל"?')){
+        google.script.run.withSuccessHandler(function(r2){
+          if(r2&&!r2.ok){ toast(r2.err||'שגיאה','err'); return; }
+          closeM(); toast('הועבר ללא פעיל ✓','ok'); goStudentsKeepFilter();
+        }).setStudentActive(id,'לא');
+        return;
+      }
+      toast(r.err||'שגיאה','err'); return;
+    }
+    closeM(); toast('נמחק','ok'); goStudentsKeepFilter();
+  }).withFailureHandler(function(e){ toast(e.message,'err'); }).deleteStudent(id);
+}
+// מחיקת שורת דרישה מהכרטסת המשפחתית: אם הדרישה משותפת לכמה תלמידים — מסירים רק את התלמיד הזה
+// (שאר האחים נשארים); אם הוא התלמיד היחיד — מוחקים את הדרישה כולה (הכסף ששולם עליה הופך לזיכוי כללי)
+function delDemFromFamily(demandId, childId, anchorId){
+  const d = D.demands.filter(function(x){return x.id===demandId;})[0];
+  const shared = d && d.studentIds.length>1;
+  const msg = shared
+    ? 'דרישה זו משותפת לכמה תלמידים. להסיר ממנה רק את התלמיד הזה? (שאר האחים יישארו בדרישה)'
+    : 'למחוק דרישה זו לצמיתות? (תשלומים שכבר שולמו עליה יהפכו לזיכוי כללי)';
+  if(!confirm(msg)) return;
+  const after = function(r){
+    if(r&&!r.ok){ toast(r.err||'שגיאה','err'); return; }
+    toast(shared?'הוסר ✓':'נמחק ✓','ok'); openFamilyLedger(anchorId);
+  };
+  if(shared) google.script.run.withSuccessHandler(after).withFailureHandler(function(e){ toast(e.message,'err'); }).removeStudentFromDemand(demandId, childId);
+  else google.script.run.withSuccessHandler(after).withFailureHandler(function(e){ toast(e.message,'err'); }).deleteDemand(demandId);
+}
+// מחיקת שורת תשלום מהכרטסת המשפחתית (מוחק את התשלום כולו; אם הוא משותף בין אחים — התראה מיוחדת)
+function delPayFromFamily(paymentId, anchorId, isShared){
+  const msg = isShared
+    ? 'תשלום זה משותף בין כמה תלמידים — מחיקתו תסיר אותו מכולם. להמשיך?'
+    : 'למחוק תשלום זה?';
+  if(!confirm(msg)) return;
   google.script.run.withSuccessHandler(function(r){
     if(r&&!r.ok){ toast(r.err||'שגיאה','err'); return; }
-    toast('נמחק','ok'); closeM();
-  }).deleteStudent(id);
+    toast('נמחק ✓','ok'); openFamilyLedger(anchorId);
+  }).withFailureHandler(function(e){ toast(e.message,'err'); }).deletePayment(paymentId);
 }
 function selFamilyParent(el){
   document.querySelectorAll('#famParentChips .chip').forEach(function(c){c.classList.remove('on');});
